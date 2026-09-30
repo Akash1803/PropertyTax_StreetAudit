@@ -13,8 +13,8 @@ import os
 from qgis.core import (Qgis, QgsAction, QgsCategorizedSymbolRenderer, QgsFillSymbol, QgsLineSymbol, QgsMarkerSymbol,
                        QgsProject, QgsRendererCategory, QgsSingleSymbolRenderer, QgsVectorLayer)
 
-VERDICTS = [("Verified", "40,170,80"), ("Unsure", "255,170,0"), ("Not street-facing", "120,120,200"),
-            ("Not visible", "150,150,150")]
+VERDICTS = [("Verified", "40,170,80"), ("Unsure", "255,170,0"), ("Pending", "0,190,230"),
+            ("Not street-facing", "120,120,200"), ("Not visible", "150,150,150")]
 FLAGS = [("Match", "40,170,80"), ("Possible shop - check", "0,160,220"), ("Mismatch", "220,40,40"),
          ("Mismatch (old imagery)", "240,140,140"), ("LLM runs disagree", "170,60,200"), ("Not checked", "170,170,170")]
 # the evidence field holds a path relative to the run folder, so the link works wherever the folder is copied

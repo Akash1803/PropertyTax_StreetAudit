@@ -72,13 +72,15 @@ def needs_second_opinion(answer: dict, own: set[str], neighbours: dict[str, set[
 
 def verdict(access: str, answers: list[dict], error: str, own: set[str], neighbours: dict[str, set[str]],
             core_ok: bool, second_required: bool) -> tuple[str, str]:
-    """(verdict, reason). Verdicts: Verified, Unsure, Not visible, Not street-facing."""
+    """(verdict, reason). Verdicts: Verified, Unsure, Not visible, Not street-facing, Pending."""
     if access == "not visible":
         return "Not visible", "no panorama has a line of sight"
     if access == "not street-facing":
         return "Not street-facing", "seen only from a distance, through gaps between other buildings"
     if not answers:
-        return "Unsure", "LLM error: " + (error or "no answer")
+        if error:
+            return "Unsure", "LLM error: " + error
+        return "Pending", "images are ready, the LLM has not been asked yet"
     first = answers[0]
     if not usable_views(first):
         hidden = sorted({str(v.get("hidden_by", "?")) for v in first.get("views", [])})

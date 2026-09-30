@@ -11,7 +11,7 @@ CSS = """body{font-family:Segoe UI,Arial,sans-serif;margin:16px;background:#f4f4
 figure{display:inline-block;margin:6px;vertical-align:top;width:470px}img{width:470px}
 figcaption{font-size:13px}table{border-collapse:collapse}td,th{padding:4px 10px;border-bottom:1px solid #ccc;
 font-size:14px;text-align:left}td:first-child{font-weight:600;white-space:nowrap}
-.Verified{color:#1a7f37}.Unsure{color:#b26a00}.Notvisible,.Notstreet-facing{color:#666}"""
+.Verified{color:#1a7f37}.Unsure{color:#b26a00}.Pending{color:#0a7ea4}.Notvisible,.Notstreet-facing{color:#666}"""
 
 
 def _e(value) -> str:

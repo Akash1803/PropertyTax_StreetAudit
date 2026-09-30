@@ -31,6 +31,10 @@ def test_llm_failure_is_unsure():
     assert v("street-facing", [], error="HTTP 500") == ("Unsure", "LLM error: HTTP 500")
 
 
+def test_not_asked_yet_is_pending_not_unsure():
+    assert v("street-facing", [])[0] == "Pending"
+
+
 def test_hidden_in_every_view():
     a = answer()
     for view in a["views"]:
