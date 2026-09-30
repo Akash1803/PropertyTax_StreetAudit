@@ -1,0 +1,17 @@
+# CCMC Ward 44 - whole ward run.
+buildings = 'D:\Projects\CCMC\Ward_DB\Ward_44\buildings.shp'
+geocodes = 'D:\Projects\CCMC\Ward_DB\Ward_44\geocodes.shp'
+run_dir = 'D:\Projects\CCMC\StreetView_POC\runs\ward44_2026-09-30'
+
+# Neighbouring wards: their footprints only block sight lines at the ward edge.
+other_footprints = [
+  'D:\Projects\CCMC\Ward_DB\Ward_34\buildings.shp',
+  'D:\Projects\CCMC\Ward_DB\Ward_43\buildings.shp',
+  'D:\Projects\CCMC\Ward_DB\Ward_45\buildings.shp',
+  'D:\Projects\CCMC\Ward_DB\Ward_69\buildings.shp',
+]
+
+metric_epsg = 32643
+llm_models = ["gemini-pro-latest"]
+llm_workers = 6
+second_opinion = "verify"

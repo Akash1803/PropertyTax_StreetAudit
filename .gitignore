@@ -1,0 +1,20 @@
+# secrets
+.env
+
+# run outputs: street images, ortho chips, result layers and evidence pages never go into the repository
+runs/
+*.gpkg
+*.gpkg-*
+*.jpg
+*.jpeg
+*.png
+*.ecw
+*.shp
+*.shx
+*.dbf
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
