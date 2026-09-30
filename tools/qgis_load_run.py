@@ -33,10 +33,23 @@ def _categorised(layer, field, spec, opacity):
     layer.setRenderer(QgsCategorizedSymbolRenderer(field, cats))
 
 
+def latest_result(run_dir):
+    """result.gpkg, or the highest result_<n>.gpkg written while an older result was open in QGIS."""
+    best, best_n = None, 0
+    for name in os.listdir(run_dir):
+        stem, ext = os.path.splitext(name)
+        if ext != ".gpkg" or not (stem == "result" or (stem.startswith("result_") and stem[7:].isdigit())):
+            continue
+        n = 1 if stem == "result" else int(stem[7:])
+        if n > best_n:
+            best, best_n = os.path.join(run_dir, name), n
+    return best
+
+
 def load_run(run_dir, group_name=None):
-    gpkg = os.path.join(run_dir, "result.gpkg")
-    if not os.path.exists(gpkg):
-        raise FileNotFoundError(gpkg)
+    gpkg = latest_result(run_dir)
+    if gpkg is None:
+        raise FileNotFoundError(os.path.join(run_dir, "result.gpkg"))
     project = QgsProject.instance()
     group_name = group_name or "Street audit - " + os.path.basename(os.path.normpath(run_dir))
     if project.layerTreeRoot().findGroup(group_name):

@@ -86,31 +86,50 @@ def build_rows(units: gpd.GeoDataFrame, plan: dict, llm_runs: dict, doors: dict,
     return rows, view_rows
 
 
+def latest_result(run_dir: Path) -> Path | None:
+    """The newest result file of a run: result.gpkg, or result_2.gpkg, result_3.gpkg ... when those exist."""
+    files = [p for p in run_dir.glob("result*.gpkg") if p.stem == "result" or p.stem[7:].isdigit()]
+    return max(files, key=lambda p: int(p.stem[7:]) if p.stem != "result" else 1, default=None)
+
+
 def write_layers(rows: list[dict], view_rows: list[dict], panos: gpd.GeoDataFrame, s: Settings) -> Path:
-    """Write result.gpkg in the run folder. Reviewers' entries in an existing result are carried over."""
-    out = s.run_dir / "result.gpkg"
+    """Write the result layers into the run folder and return the file written.
+
+    Reviewers' entries in the newest existing result are carried over. The result is written to a new
+    file first and then put in place of result.gpkg. When result.gpkg is open in QGIS it cannot be
+    replaced (and must not be deleted under QGIS), so the new result is kept beside it as result_<n>.gpkg.
+    """
     res = gpd.GeoDataFrame(rows, crs=s.metric_epsg).to_crs(4326)
     for col in ("poss_shop", "runs_agree"):                  # yes / no / empty reads better in QGIS than 1 / 0
         res[col] = res[col].map({True: "yes", False: "no"})
     for col in ("llm_floors", "rec_floors", "shutters"):
         res[col] = pd.to_numeric(res[col], errors="coerce").astype("Int64")
-    if out.exists():
-        old = gpd.read_file(out, layer="buildings_result", ignore_geometry=True)
+    previous = latest_result(s.run_dir)
+    if previous is not None:
+        old = gpd.read_file(previous, layer="buildings_result", ignore_geometry=True)
         old = old[["unit_id", *REVIEW_FIELDS]].dropna(how="all", subset=list(REVIEW_FIELDS)).set_index("unit_id")
         for f in REVIEW_FIELDS:
             res[f] = res["unit_id"].map(old[f]) if len(old) else None
-        out.unlink()
-    res.to_file(out, layer="buildings_result", driver="GPKG")
+
+    number = 1 if previous is None else (1 if previous.stem == "result" else int(previous.stem[7:])) + 1
+    new = s.run_dir / f"result_{number}.gpkg" if number > 1 else s.run_dir / "result.gpkg"
+    res.to_file(new, layer="buildings_result", driver="GPKG")
     if view_rows:
-        gpd.GeoDataFrame(view_rows, crs=s.metric_epsg).to_crs(4326).to_file(out, layer="views", driver="GPKG")
+        gpd.GeoDataFrame(view_rows, crs=s.metric_epsg).to_crs(4326).to_file(new, layer="views", driver="GPKG")
     used = {v["pano_id"] for v in view_rows}
     p = panos.copy()
     p["used"] = p["pano_id"].isin(used)
-    p.to_crs(4326).to_file(out, layer="panoramas", driver="GPKG")
-    back = len(gpd.read_file(out, layer="buildings_result", ignore_geometry=True))
+    p.to_crs(4326).to_file(new, layer="panoramas", driver="GPKG")
+    back = len(gpd.read_file(new, layer="buildings_result", ignore_geometry=True))
     if back != len(res):
         raise RuntimeError(f"result layer has {back} rows, expected {len(res)}")
-    return out
+    if previous is not None:
+        try:                                   # not open anywhere: the new result simply takes its place
+            new.replace(previous)
+            return previous
+        except PermissionError:
+            pass                               # open in QGIS: leave it alone, the new file stands beside it
+    return new
 
 
 def summarise(rows: list[dict]) -> dict:

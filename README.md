@@ -79,7 +79,9 @@ The evidence links are relative, so the run folder can be copied or zipped for a
 
 In QGIS, [tools/qgis_load_run.py](tools/qgis_load_run.py) loads a run as a styled group. Identify a building and run the action **Show street view evidence**.
 
-Rerunning the `results` stage keeps what reviewers have typed into `review`, `reviewer` and `review_note`.
+Rerunning the `results` stage keeps what reviewers have typed into `review`, `reviewer` and `review_note`. If `result.gpkg` is open in QGIS at that moment it cannot be replaced, so the new result is written beside it as `result_2.gpkg`; the loader always takes the newest.
+
+Buildings the LLM has not been asked about yet have the verdict **Pending**, so a ward can be asked in batches.
 
 ## Tests
 
