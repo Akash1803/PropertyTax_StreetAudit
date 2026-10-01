@@ -1,13 +1,14 @@
-"""Cut one ortho chip per building. Run with QGIS's Python, because only its GDAL reads ECW:
+"""Cut ortho chips. Run with QGIS's Python, because only its GDAL reads ECW:
 
-    "C:\\Program Files\\QGIS 3.40.10\\bin\\python-qgis-ltr.bat" tools\\export_ortho_chips.py <ortho file> <run_dir> [ids.txt]
+    "C:\\Program Files\\QGIS 3.40.10\\bin\\python-qgis-ltr.bat" tools\\export_ortho_chips.py <ortho file> <run_dir> [ids.txt] [--todo NAME]
 
-Reads <run_dir>/work/chips_todo.json (written by the `views` stage) and writes JPEG chips plus
-<run_dir>/work/chips/chips.json. Chips already on disk are kept, so the script can be rerun.
-With an ids file (one building or unit id per line) only those buildings get a chip.
+Reads <run_dir>/work/NAME_todo.json and writes JPEG chips plus <run_dir>/work/NAME/chips.json.
+NAME is `chips` (one chip per building, listed by the `views` stage) or `street_chips` (one chip per
+stretch of road, listed by the `streets` stage). Chips already on disk are kept, so the script can be
+rerun. With an ids file (one id per line) only those get a chip.
 """
+import argparse
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -40,21 +41,32 @@ def read_chip(ds, c: dict, px: int):
 
 
 def main() -> None:
-    ortho, run_dir = sys.argv[1], Path(sys.argv[2])
-    todo = json.loads((run_dir / "work" / "chips_todo.json").read_text(encoding="utf-8"))
-    if len(sys.argv) > 3:
-        wanted = {ln.strip() for ln in Path(sys.argv[3]).read_text(encoding="utf-8-sig").splitlines() if ln.strip()}
+    ap = argparse.ArgumentParser()
+    ap.add_argument("ortho")
+    ap.add_argument("run_dir", type=Path)
+    ap.add_argument("ids_file", nargs="?")
+    ap.add_argument("--todo", default="chips", help="chips (buildings) or street_chips (stretches)")
+    args = ap.parse_args()
+    run_dir = args.run_dir
+    todo = json.loads((run_dir / "work" / f"{args.todo}_todo.json").read_text(encoding="utf-8"))
+    if args.ids_file:
+        wanted = {ln.strip() for ln in Path(args.ids_file).read_text(encoding="utf-8-sig").splitlines() if ln.strip()}
         todo["chips"] = {u: c for u, c in todo["chips"].items() if u in wanted or u.split("_p")[0] in wanted}
-    out_dir = run_dir / "work" / "chips"
+    out_dir = run_dir / "work" / args.todo
     out_dir.mkdir(parents=True, exist_ok=True)
-    ds = gdal.Open(ortho)
+    ds = gdal.Open(args.ortho)
     epsg = ds.GetSpatialRef().GetAuthorityCode(None)
     if str(epsg) != str(todo["epsg"]):
         raise SystemExit(f"ortho is EPSG:{epsg} but the run works in EPSG:{todo['epsg']}; reproject the ortho first")
-    px = todo["px"]
     jpeg, mem = gdal.GetDriverByName("JPEG"), gdal.GetDriverByName("MEM")
-    meta, outside = {}, 0
+    # chips cut earlier stay listed as long as their file is still there (prune deletes the files)
+    meta_path = out_dir / "chips.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    meta = {k: v for k, v in meta.items() if Path(v["file"]).exists()}
+    outside = 0
     for n, (unit_id, c) in enumerate(todo["chips"].items(), 1):
+        px = c.get("px", todo["px"])
+        c = {k: v for k, v in c.items() if k != "px"}
         out = out_dir / f"{unit_id}.jpg"
         if not out.exists():
             chip = read_chip(ds, c, px)
@@ -73,8 +85,8 @@ def main() -> None:
         meta[unit_id] = {"file": str(out), "px": px, **c}
         if n % 200 == 0:
             print(f"chips: {n}/{len(todo['chips'])}", flush=True)
-    (out_dir / "chips.json").write_text(json.dumps(meta), encoding="utf-8")
-    print(f"chips written: {len(meta)}, outside the ortho: {outside}")
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    print(f"chips listed: {len(meta)} ({len(todo['chips'])} asked for), outside the ortho: {outside}")
 
 
 if __name__ == "__main__":

@@ -56,6 +56,20 @@ class Settings:
     door_unique_m: float = 50.0
     old_imagery_before: str = "2025-01"  # views captured before this month are "old imagery" in a mismatch
 
+    # --- street level
+    roads: Path | None = None      # the analyst's road line layer; only read
+    road_name_field: str = "Road_Name"
+    zone_field: str = "Zone"       # tax zone of each assessment in the geocodes
+    junction_tol_m: float = 1.0    # a line end this close to another line makes a junction
+    min_stretch_m: float = 10.0    # shorter pieces between junctions are dropped
+    street_cam_m: float = 15.0     # a building belongs to the stretch within this distance of its closest camera
+    backlot_m: float = 30.0        # ... or, when no street view can check it, of its footprint
+    street_step_m: float = 50.0    # spacing of the along-road pictures
+    street_pano_m: float = 10.0    # a picture point uses a panorama within this distance
+    street_fov: float = 90.0
+    gap_step_m: float = 10.0       # sampling of the gap between building fronts
+    gap_reach_m: float = 25.0
+
     @classmethod
     def load(cls, path: str | Path) -> "Settings":
         # utf-8-sig: Windows editors and PowerShell often put a byte-order mark at the start of the file
@@ -66,7 +80,7 @@ class Settings:
             raise ValueError(f"unknown settings in {path}: {sorted(unknown)}")
         values = {}
         for name, value in raw.items():
-            if name in ("buildings", "geocodes", "run_dir"):
+            if name in ("buildings", "geocodes", "run_dir", "roads"):
                 value = Path(value)
             elif name == "other_footprints":
                 value = tuple(Path(v) for v in value)

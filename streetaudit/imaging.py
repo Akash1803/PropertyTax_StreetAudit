@@ -128,7 +128,7 @@ def build_evidence(plan: dict[str, dict], units: gpd.GeoDataFrame, chips: dict[s
                 info["zoom"] = {"of_view": z + 1, "pano_id": v["pano_id"], "aim": za, "image": name}
         info["ortho_image"] = None
         chip = chips.get(unit_id)
-        if chip and info["views"]:
+        if chip and info["views"] and Path(chip["file"]).exists():      # prune deletes chip files
             out = s.evidence_dir / f"{unit_id}_ortho.jpg"
             box = shapely.box(chip["xmin"], chip["ymin"], chip["xmax"], chip["ymax"])
             near = units.iloc[tree.query(box, predicate="intersects")]

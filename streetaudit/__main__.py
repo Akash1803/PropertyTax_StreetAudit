@@ -7,8 +7,13 @@
     python -m streetaudit -c configs/ward44.toml llm
     python -m streetaudit -c configs/ward44.toml results
 
+Street level (on a hand-digitised road layer, see docs/street-level-design.md):
+    python -m streetaudit -c configs/ward44.toml streets
+    python -m streetaudit -c configs/ward44.toml street-images --stretch-ids ...
+    python -m streetaudit -c configs/ward44.toml street-export --stretch-ids ... --name s1
+
 Every stage keeps what earlier runs produced, so a run can be interrupted and continued, and a stage
-can be limited to some buildings with --ids, --ids-file or --line.
+can be limited to some buildings with --ids, --ids-file, --line, --stretch-ids or --streets.
 """
 from __future__ import annotations
 
@@ -26,7 +31,7 @@ import geopandas as gpd
 import pandas as pd
 import shapely
 
-from . import data, evidence, export, imaging, llm, panoramas, results, review, rules, visibility
+from . import data, evidence, export, imaging, llm, panoramas, results, review, rules, street_layer, visibility
 from .config import Settings, require_key
 from .sources import GoogleStreetView
 
@@ -52,12 +57,40 @@ def _llm_runs(path: Path, key: str) -> list[dict]:
     return saved.get("runs", []) if isinstance(saved, dict) and saved.get("key") == key else []
 
 
-def _selection(args, s: Settings, units: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+def _ids(args) -> list[str] | None:
     ids = None
     if args.ids:
         ids = [i.strip() for i in args.ids.split(",") if i.strip()]
     if args.ids_file:
-        ids = (ids or []) + [ln.strip() for ln in Path(args.ids_file).read_text(encoding="utf-8").splitlines() if ln.strip()]
+        ids = (ids or []) + [ln.strip() for ln in Path(args.ids_file).read_text(encoding="utf-8-sig").splitlines() if ln.strip()]
+    return ids
+
+
+def _split(text: str | None) -> list[str] | None:
+    return [t.strip() for t in text.split(",") if t.strip()] if text else None
+
+
+def _street_plan(s: Settings) -> dict:
+    path = street_layer.work(s) / "plan.json"
+    if not path.exists():
+        raise SystemExit("no street plan yet: run the `streets` stage first")
+    return street_layer.read_json(path, {})
+
+
+def _chosen_stretches(args, s: Settings, plan: dict) -> list[str]:
+    sids = street_layer.select_stretches(plan, _split(args.stretch_ids), _split(args.streets), _ids(args))
+    if not sids:
+        raise SystemExit("the selection holds no stretch")
+    return sids
+
+
+def _selection(args, s: Settings, units: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    ids = _ids(args)
+    if args.stretch_ids or args.streets:
+        # the buildings that belong to the chosen stretches
+        plan = _street_plan(s)
+        sids = set(street_layer.select_stretches(plan, _split(args.stretch_ids), _split(args.streets)))
+        ids = (ids or []) + [u for u, a in plan["assign"].items() if a["stretch_id"] in sids]
     line = None
     if args.line:
         line = gpd.GeoSeries([shapely.from_wkt(args.line)], crs=4326).to_crs(s.metric_epsg).iloc[0]
@@ -198,7 +231,7 @@ def stage_review_page(args, s: Settings) -> None:
     if args.tag_file:
         tags = {ln.strip() for ln in Path(args.tag_file).read_text(encoding="utf-8").splitlines() if ln.strip()}
     only = None
-    if args.ids or args.ids_file or args.line or args.limit:
+    if _selected(args):
         only = set(_selection(args, s, data.load_units(s))["unit_id"])
     out, n = review.write_page(s, aimed, tags, only)
     say(f"review page written for {n} buildings: {out}")
@@ -218,18 +251,37 @@ def stage_import_review(args, s: Settings) -> None:
     print(json.dumps(results.review_scores(res.drop(columns="geometry")), indent=1, ensure_ascii=False))
 
 
+def _answers(s: Settings, aimed: dict, units) -> dict:
+    return {u: [r["answer"] for r in _llm_runs(s.work_dir / "llm" / f"{u}.json", llm.request_key(aimed[u]))
+                if r.get("answer")] for u in units if aimed.get(u, {}).get("views")}
+
+
+def _street_of_units(s: Settings) -> dict:
+    """unit id -> (stretch id, street name), when the street plan exists."""
+    path = street_layer.work(s) / "plan.json"
+    if not path.exists():
+        return {}
+    plan = street_layer.read_json(path, {})
+    return {u: (a["stretch_id"], street_layer.street_name(plan["stretches"][a["stretch_id"]]))
+            for u, a in plan["assign"].items()}
+
+
+def _selected(args) -> bool:
+    return bool(args.ids or args.ids_file or args.line or args.limit or args.stretch_ids or args.streets)
+
+
 def stage_export(args, s: Settings) -> None:
     aimed = _read_json(s.work_dir / "aimed.json", {})
     only = None
-    if args.ids or args.ids_file or args.line or args.limit:
+    if _selected(args):
         only = set(_selection(args, s, data.load_units(s))["unit_id"])
     _, res, _, _ = results.load_result(s)
     units = res["unit_id"] if only is None else [u for u in res["unit_id"] if u in only]
-    answers = {u: [r["answer"] for r in _llm_runs(s.work_dir / "llm" / f"{u}.json", llm.request_key(aimed[u]))
-                   if r.get("answer")] for u in units if aimed.get(u, {}).get("views")}
+    answers = _answers(s, aimed, units)
     out = s.run_dir / f"{s.run_dir.name}_AI_check{('_' + args.name) if args.name else ''}.geojson"
     corrections = _read_json(s.work_dir / "corrections.json", {})
-    n = export.export_geojson(res, aimed, answers, out, s.evidence_dir, only, corrections)
+    others = sorted(p for p in s.run_dir.glob(f"{s.run_dir.name}_AI_check*.geojson") if p != out)
+    n = export.export_geojson(res, aimed, answers, out, s.evidence_dir, only, corrections, _street_of_units(s), others)
     style = out.with_suffix(".qml")           # same name as the layer: QGIS applies it when the layer is added
     if not style.exists():
         shutil.copyfile(Path(export.__file__).with_name("ai_check_style.qml"), style)
@@ -240,17 +292,100 @@ def stage_export(args, s: Settings) -> None:
 def stage_prune(args, s: Settings) -> None:
     """Delete the full-size pictures and chips. The layer keeps its small pictures; the rest can be fetched again."""
     freed = 0
-    for folder, patterns in ((s.evidence_dir, ("*.jpg", "*.html", "*.js")), (s.work_dir / "chips", ("*.jpg",))):
+    for folder, patterns in ((s.evidence_dir, ("*.jpg", "*.html", "*.js")), (s.work_dir / "chips", ("*.jpg",)),
+                             (s.evidence_dir / "streets", ("*.jpg",)), (s.work_dir / "street_chips", ("*.jpg",))):
         for pattern in patterns:
             for p in folder.glob(pattern):
                 freed += p.stat().st_size
                 p.unlink()
-    say(f"freed {freed / 1e6:.0f} MB (full-size street views, zooms, ortho chips, evidence pages)")
+    say(f"freed {freed / 1e6:.0f} MB (full-size street views, zooms, along-road pictures, ortho chips, evidence pages)")
+
+
+def stage_streets(args, s: Settings) -> None:
+    """Stretches from the road layer, the buildings on each, picture points and front gaps. Local and free."""
+    units = data.load_units(s)
+    view_plan = _read_json(s.work_dir / "views.json", {})
+    if not view_plan:
+        raise SystemExit("no planned views yet: run the `views` stage first")
+    blockers = data.load_blockers(s, units)
+    panos = visibility.usable_panoramas(gpd.read_file(s.work_dir / "panoramas.gpkg"), blockers, s)
+    plan = street_layer.plan_streets(s, units, view_plan, panos, blockers)
+    street_layer.write_json(street_layer.work(s) / "plan.json", plan)
+    sts = plan["stretches"]
+    _write_json(s.work_dir / "street_chips_todo.json", street_layer.chips_todo(plan, list(sts), s.metric_epsg))
+    roles = [a["role"] for a in plan["assign"].values()]
+    n_pics = sum(1 for info in sts.values() for p in info["points"] if p["pano"])
+    say(f"{plan['roads_count']} road lines -> {len(sts)} stretches, {sum(i['length_m'] for i in sts.values()) / 1000:.1f} km | "
+        f"buildings on a drawn road: {roles.count('seen')} seen from it, {roles.count('cannot see')} cannot be seen | "
+        f"along-road pictures possible: {n_pics} | no name drawn: "
+        f"{sum(1 for i in sts.values() if not i['name_drawn'])}")
+    for sid, info in sts.items():
+        members = [u for u, a in plan["assign"].items() if a["stretch_id"] == sid]
+        print(f"  {sid}  {street_layer.street_name(info) or '-':32.32}  {info['length_m']:6.0f} m  "
+              f"buildings {len(members):3d}  pictures {sum(1 for p in info['points'] if p['pano'])}")
+
+
+def stage_street_images(args, s: Settings) -> None:
+    """Fetch the along-road pictures of the chosen stretches, mark the ortho and write the reading sheets."""
+    plan = _street_plan(s)
+    sids = _chosen_stretches(args, s, plan)
+    source = GoogleStreetView(require_key("GOOGLE_MAPS_API_KEY"))
+    path = street_layer.work(s) / "pictures.json"
+    pictures = street_layer.read_json(path, {})
+    pictures.update(street_layer.fetch_pictures(s, plan, sids, source, pictures))
+    chips = _read_json(s.work_dir / "street_chips" / "chips.json", {})
+    units = data.load_units(s)
+    no_chip = []
+    for sid in sids:
+        overview = None
+        chip = chips.get(sid)
+        if chip and Path(chip["file"]).exists():
+            overview = s.evidence_dir / "streets" / f"{sid}_ortho.jpg"
+            street_layer.mark_overview(chip, sid, plan, pictures[sid]["pictures"], units).save(overview, quality=86)
+        else:
+            no_chip.append(sid)
+        pictures[sid]["ortho_image"] = overview.name if overview else None
+        pictures[sid]["sheets"] = street_layer.write_sheets(s, sid, plan["stretches"][sid], pictures[sid]["pictures"], overview)
+    street_layer.write_json(path, pictures)
+    fetched = sum(1 for sid in sids for p in pictures[sid]["pictures"] if p.get("image"))
+    say(f"pictures for {len(sids)} stretches: {fetched} | sheets in {s.evidence_dir / 'streets'}")
+    if no_chip:
+        say(f"no ortho chip for {len(no_chip)} stretches; cut them with tools/export_ortho_chips.py --todo street_chips")
+
+
+def stage_street_export(args, s: Settings) -> None:
+    """The street layers for the chosen stretches, from the building check, the zones and the street readings."""
+    plan = _street_plan(s)
+    sids = _chosen_stretches(args, s, plan)
+    pictures = street_layer.read_json(street_layer.work(s) / "pictures.json", {})
+    readings = street_layer.load_readings(s, pictures)
+    aimed = _read_json(s.work_dir / "aimed.json", {})
+    _, res, _, _ = results.load_result(s)
+    res = res.to_crs(s.metric_epsg)
+    corrections = _read_json(s.work_dir / "corrections.json", {})
+    rows = export.building_rows(res, aimed, _answers(s, aimed, res["unit_id"]), s.evidence_dir, None, None, corrections)
+    bldg_rows = dict(zip(res["unit_id"], rows))
+    lines, points = street_layer.street_rows(s, plan, pictures, readings, bldg_rows, street_layer.assessment_zones(s),
+                                             sids, s.run_dir / "images" / "streets")
+    suffix = ("_" + args.name) if args.name else ""
+    out_lines = s.run_dir / f"{s.run_dir.name}_streets{suffix}.geojson"
+    out_points = s.run_dir / f"{s.run_dir.name}_street_views{suffix}.geojson"
+    n_lines, n_points, orphans = street_layer.export_streets(s, lines, points, out_lines, out_points, set(plan["stretches"]))
+    for out, style in ((out_lines, "street_style.qml"), (out_points, "street_views_style.qml")):
+        src = Path(export.__file__).with_name(style)
+        if src.exists() and not out.with_suffix(".qml").exists():
+            shutil.copyfile(src, out.with_suffix(".qml"))
+    say(f"streets layer: {out_lines} ({n_lines} stretches, {sum(1 for r in lines if r['check'] == 'Read')} read) | "
+        f"street views: {out_points} ({n_points} pictures)")
+    if orphans:
+        say(f"notes on {len(orphans)} stretches that no longer exist (a new road split them): "
+            f"{street_layer.work(s) / 'orphan_notes.json'}")
 
 
 STAGES = {"panoramas": stage_panoramas, "views": stage_views, "images": stage_images, "llm": stage_llm,
           "results": stage_results, "export": stage_export, "prune": stage_prune,
-          "review-page": stage_review_page, "import-review": stage_import_review}
+          "review-page": stage_review_page, "import-review": stage_import_review,
+          "streets": stage_streets, "street-images": stage_street_images, "street-export": stage_street_export}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -264,6 +399,9 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--buffer", type=float, default=20.0, help="distance from --line in metres (default 20)")
     ap.add_argument("--max-length", type=float, help="use only the first metres of --line")
     ap.add_argument("--limit", type=int, help="work on the first N buildings of the selection")
+    ap.add_argument("--stretch-ids", help="comma-separated stretch ids (see the `streets` stage); building stages "
+                                          "then work on the buildings of those stretches")
+    ap.add_argument("--streets", help="comma-separated street names, any spelling; like --stretch-ids")
     ap.add_argument("--retry-failed", action="store_true", help="llm stage: ask again where the last attempt failed")
     ap.add_argument("--tag-file", help="review-page: building ids to mark as the review set")
     ap.add_argument("--name", help="export: suffix for the layer name, e.g. batch2 -> <run>_AI_check_batch2.geojson")

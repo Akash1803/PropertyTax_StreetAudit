@@ -6,7 +6,8 @@ import pytest
 from PIL import Image
 from shapely.geometry import box
 
-from streetaudit.export import _shop, _vs_survey, export_geojson, picture_view, trade_only_in_other_views
+from streetaudit.export import (_shop, _vs_survey, export_geojson, picture_view, trade_only_in_other_views,
+                                upper_floors_unseen)
 
 
 def test_picture_is_the_first_clear_view_of_the_building():
@@ -55,6 +56,19 @@ def test_shop_and_survey_comparison():
     assert _vs_survey("Mixed", 2, "Residential", 1) == "type differs and floors differ"
     assert _vs_survey("Residential", 1, "Residential", 1) == "same"
     assert _vs_survey("cannot tell", 1, "Residential", 1) == "-"
+    # shops below, upper floor not seen: the survey's Mixed is not contradicted
+    assert _vs_survey("Commercial", 1, "Mixed", 1, upper_unseen=True) == "type unclear (upper floors not seen)"
+    assert _vs_survey("Commercial", 1, "Mixed", 1) == "type differs"
+    assert _vs_survey("Commercial", 1, "Residential", 1, upper_unseen=True) == "type differs"
+
+
+def test_upper_floors_unseen():
+    cls = {"floors_above_ground": 2, "floor_usage": [{"floor": 0, "usage": "Commercial"},
+                                                     {"floor": 1, "usage": "Commercial"}]}
+    assert upper_floors_unseen(cls) is True                       # floor 2 not described
+    cls["floor_usage"].append({"floor": 2, "usage": "Residential"})
+    assert upper_floors_unseen(cls) is False
+    assert upper_floors_unseen({"floors_above_ground": 0, "floor_usage": []}) is False
 
 
 def test_export_writes_the_identified_values_and_keeps_verification(tmp_path):

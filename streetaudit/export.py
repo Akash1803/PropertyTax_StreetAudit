@@ -72,12 +72,25 @@ def picture_view(views: list[dict], answer: dict) -> int:
     return 0
 
 
-def _vs_survey(llm_usage, llm_floors, rec_usage, rec_floors) -> str:
+def upper_floors_unseen(cls: dict) -> bool:
+    """True when the reading could not tell the use of an upper floor."""
+    floors = cls.get("floors_above_ground")
+    uses = {f.get("floor"): f.get("usage") for f in cls.get("floor_usage") or []}
+    if not isinstance(floors, int) or floors < 1:
+        return False
+    return any(uses.get(n) in (None, "cannot tell") for n in range(1, floors + 1))
+
+
+def _vs_survey(llm_usage, llm_floors, rec_usage, rec_floors, upper_unseen: bool = False) -> str:
     if not llm_usage or llm_usage == "cannot tell":
         return "-"
     parts = []
     if rules._norm_usage(llm_usage) != rules._norm_usage(rec_usage):
-        parts.append("type differs")
+        # shops below and upper floors not seen: the survey's Mixed may well be right (44WN1250, 44WN1411)
+        if upper_unseen and rules._norm_usage(llm_usage) == "commercial" and rules._norm_usage(rec_usage) == "mixed":
+            parts.append("type unclear (upper floors not seen)")
+        else:
+            parts.append("type differs")
     if llm_floors is not None and not pd.isna(llm_floors) and rec_floors is not None and not pd.isna(rec_floors) \
             and int(llm_floors) != int(rec_floors):
         parts.append("floors differ")
@@ -95,24 +108,20 @@ def thumbnail(src: Path, dst: Path) -> bool:
     return True
 
 
-def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Path, evidence_dir: Path,
-                   only: set[str] | None = None, corrections: dict | None = None) -> int:
-    """Write the GeoJSON (EPSG:4326) and its images folder beside it. Returns the number of features.
+def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence_dir: Path,
+                  images: Path | None = None, kept: dict | None = None, corrections: dict | None = None,
+                  streets: dict | None = None) -> list[dict]:
+    """The building layer's attributes, one dict per unit of `result`, with the geometry.
 
-    What the checker typed into `verified` / `verify_note` in an earlier export is carried over.
+    `images`: folder for the small pictures; None leaves pictures out (the street summary needs none).
+    `kept`: (gis_id, part) -> (verified, verify_note) from an earlier export.
     `corrections` maps a unit id (e.g. 44WN1073_p2, or the building id for a one-part building) to
     attribute values that replace the reading, e.g. after an older street view was checked.
+    `streets`: unit id -> (stretch id, street name).
     """
-    images = out.parent / "images"
-    kept = {}
-    if out.exists():
-        old = gpd.read_file(out, ignore_geometry=True)
-        for o in old.itertuples():
-            if (getattr(o, "verified", None) not in (None, "")) or (getattr(o, "verify_note", None) not in (None, "")):
-                kept[(o.gis_id, int(o.part))] = (o.verified, o.verify_note)
+    kept, streets = kept or {}, streets or {}
     rows = []
-    res = result if only is None else result[result["unit_id"].isin(only)]
-    for r in res.itertuples():
+    for r in result.itertuples():
         info = aimed.get(r.unit_id) or {}
         views = [v for v in info.get("views", []) if v.get("image")]
         first = (answers.get(r.unit_id) or [{}])[0] or {}
@@ -121,7 +130,7 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
         image = streetview = None
         if views:
             v = views[picture_view(views, first) if checked else 0]
-            if thumbnail(evidence_dir / v["image"], images / f"{r.unit_id}.jpg"):
+            if images is not None and thumbnail(evidence_dir / v["image"], images / f"{r.unit_id}.jpg"):
                 image = f"images/{r.unit_id}.jpg"
             streetview = GoogleStreetView.viewer_url(v["pano_id"], v["aim"]["heading"], v["aim"]["fov"], v["aim"]["pitch"])
         usage = cls.get("building_usage") if checked else None
@@ -147,10 +156,12 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
             "image": image, "streetview": streetview,
             "photo_date": v["pano_date"] if views else None,
             "survey_type": r.rec_usage, "survey_floors": _floors_text(r.rec_floors),
-            "vs_survey": _vs_survey(usage, floors, r.rec_usage, r.rec_floors) if checked else "-",
+            "vs_survey": _vs_survey(usage, floors, r.rec_usage, r.rec_floors, upper_floors_unseen(cls)) if checked else "-",
             "checked_by": (r.model if checked else None), "checked_on": time.strftime("%Y-%m-%d"),
             "verified": kept.get((r.building_id, int(r.part)), (None, None))[0],
             "verify_note": kept.get((r.building_id, int(r.part)), (None, None))[1],
+            "stretch_id": streets.get(r.unit_id, (None, None))[0],
+            "street": streets.get(r.unit_id, (None, None))[1],
             "geometry": r.geometry,
         })
         fix = (corrections or {}).get(r.unit_id, {})
@@ -162,9 +173,26 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
             rows[-1][k] = v
         if fix and "vs_survey" not in fix:              # the comparison follows the corrected values
             rows[-1]["vs_survey"] = _vs_survey(rows[-1]["bldg_type"], rows[-1]["floor_count"], r.rec_usage, r.rec_floors)
-    gdf = gpd.GeoDataFrame(rows, crs=result.crs).to_crs(4326)
-    gdf["floor_count"] = pd.to_numeric(gdf["floor_count"], errors="coerce").astype("Int64")
-    gdf["units_seen"] = pd.to_numeric(gdf["units_seen"], errors="coerce").astype("Int64")
+    return rows
+
+
+def kept_verification(out: Path, key_fields: tuple[str, ...]) -> dict:
+    """What the checker typed into `verified` / `verify_note` in an earlier export of the same layer."""
+    kept = {}
+    if out.exists():
+        old = gpd.read_file(out, ignore_geometry=True)
+        def value(v):
+            return None if v is None or (isinstance(v, float) and pd.isna(v)) or v == "" else v
+        for o in old.to_dict("records"):
+            said = (value(o.get("verified")), value(o.get("verify_note")))
+            if said != (None, None):
+                key = tuple(int(o[k]) if k == "part" else o[k] for k in key_fields)
+                kept[key if len(key) > 1 else key[0]] = said
+    return kept
+
+
+def write_layer(gdf: gpd.GeoDataFrame, out: Path) -> int:
+    """Write a GeoJSON in place of an older one and check that every feature arrived."""
     out.parent.mkdir(parents=True, exist_ok=True)
     if out.exists():
         try:
@@ -176,3 +204,23 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
     if back != len(gdf):
         raise RuntimeError(f"{out} has {back} features, expected {len(gdf)}")
     return len(gdf)
+
+
+def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Path, evidence_dir: Path,
+                   only: set[str] | None = None, corrections: dict | None = None, streets: dict | None = None,
+                   others: list[Path] | None = None) -> int:
+    """Write the GeoJSON (EPSG:4326) and its images folder beside it. Returns the number of features.
+
+    What the checker typed into `verified` / `verify_note` in an earlier export is carried over, also
+    from the other batch layers in `others` (a building checked in batch 2 stays checked in a street batch);
+    the layer's own earlier entries win.
+    """
+    res = result if only is None else result[result["unit_id"].isin(only)]
+    kept = {}
+    for path in [*(others or []), out]:
+        kept.update(kept_verification(path, ("gis_id", "part")))
+    rows = building_rows(res, aimed, answers, evidence_dir, out.parent / "images", kept, corrections, streets)
+    gdf = gpd.GeoDataFrame(rows, crs=result.crs).to_crs(4326)
+    gdf["floor_count"] = pd.to_numeric(gdf["floor_count"], errors="coerce").astype("Int64")
+    gdf["units_seen"] = pd.to_numeric(gdf["units_seen"], errors="coerce").astype("Int64")
+    return write_layer(gdf, out)

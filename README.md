@@ -102,9 +102,40 @@ Rerunning the `results` stage keeps what reviewers have typed into `review`, `re
 
 Buildings the LLM has not been asked about yet have the verdict **Pending**, so a ward can be asked in batches.
 
+## Street level
+
+Beside the building layer there is a street layer: one line per stretch of road between two junctions, built on a hand-digitised road layer (`roads` in the settings, only read). The design is in [docs/street-level-design.md](docs/street-level-design.md).
+
+Each stretch carries:
+
+- **the summary of its buildings**: how many, how many seen from it, checked, Verified, the types seen, shops, and how many differ from the survey (with their GIS_IDs). The line is coloured green to red by that share, so the streets where the tax register is most out of date stand out;
+- **the tax zone**: the main `Zone` of its assessments and of the whole named street, the assessments whose zone differs from the street's, and whether the street looks like its zone (a provisional rule: a shop-lined main road in zone B or C reads "zone may be low", a quiet one-lane lane in zone A "zone may be high"). A zone flag draws the line dashed;
+- **what the road looks like**, read from one picture looking along the road every 50 m: road type, surface, width, footpath, drain, lights, share of shops;
+- **the gap between building fronts**, measured from the footprints. It is not the road width: set-backs widen it.
+
+A building belongs to the stretch its closest street view was taken from; a corner house photographed from two roads goes to the road of its address. Buildings no street view can see go to the nearest stretch within 30 m.
+
+Street work goes in batches of streets, done end to end:
+
+```
+python -m streetaudit -c configs\ward44.toml streets                                  # stretches, assignment, picture points; free
+"C:\Program Files\QGIS 3.40.10\bin\python-qgis-ltr.bat" tools\export_ortho_chips.py <ortho> <run_dir> stretches.txt --todo street_chips
+python -m streetaudit -c configs\ward44.toml street-images --stretch-ids S035965,S5d96f5
+python tools\write_street_readings.py -c configs\ward44.toml --by "name" streets.jsonl
+python -m streetaudit -c configs\ward44.toml images --stretch-ids S035965,S5d96f5       # the buildings on those stretches
+python -m streetaudit -c configs\ward44.toml export --stretch-ids S035965,S5d96f5 --name s1
+python -m streetaudit -c configs\ward44.toml street-export --stretch-ids S035965,S5d96f5 --name s1
+```
+
+`--stretch-ids` and `--streets "NSR Road"` work on every stage; on the building stages they select the buildings of those stretches. The `streets` stage lists every stretch with its id, name, length, buildings and pictures. Run it again after more roads are drawn: a stretch keeps its id as long as its ends do; a stretch split by a new road gets new ids, and notes typed on the old one are kept in `work/streets/orphan_notes.json`.
+
+`street-export` writes `<run>_streets_<name>.geojson` (lines) and `<run>_street_views_<name>.geojson` (one point per along-road picture, with the picture), each with its style. The styles are built with [tools/make_street_styles.py](tools/make_street_styles.py) inside QGIS. The building layer gains `stretch_id` and `street`, and keeps `verified` / `verify_note` typed in any other batch layer of the run.
+
 ## Reading the pictures by eye
 
 Without an LLM, a person (or an assistant in a chat) can read the marked pictures and store the readings with [tools/write_readings.py](tools/write_readings.py). The readings use the same answer form, so the same rules decide the check and the same export makes the layer. The script refuses readings whose number of views does not match the run, or whose reference view is hidden.
+
+[tools/building_sheets.py](tools/building_sheets.py) makes the reading sheets: every view labelled with the camera's distance, the target bracket "T near-far m", lettered brackets for the neighbours with the same letters on the ortho, and up to two extra views from other sides. `street-images` writes the street sheets (pictures plus the ortho of the stretch) into `evidence\streets\`.
 
 Checklist that came out of Akash's checks of the first 60 buildings:
 
@@ -114,6 +145,7 @@ Checklist that came out of Akash's checks of the first 60 buildings:
 - A stilt parking level is the ground floor; count the floors above it (44WN1242).
 - When the current views are hidden, look at older panoramas and other angles before answering "cannot tell" (44WN1073 part 2, 44WN1142).
 - Check which footprint a shop board belongs to with the neighbouring footprints' distances, not by eye alone (44WN1749, 44WN1141).
+- Shops below and upper floors not seen is not a contradiction of the survey's Mixed; the layer says "type unclear (upper floors not seen)" and the street summary does not count it as a difference.
 
 Answers are tied to the images they were read from (`request_key`). Rewording the LLM question does not invalidate them; planning or fetching the views again does. [tools/rekey_answers.py](tools/rekey_answers.py) migrated answers written under the older key.
 
@@ -132,6 +164,8 @@ The tests cover the camera geometry, the line-of-sight test, view selection, doo
 - **The LLM is not stable.** On the same images its identity opinion can change between runs; this is why it is asked twice.
 - **Back-lot buildings** cannot be audited from the street.
 - **Re-aiming** when a neighbour's door number is read is not implemented; such buildings are Unsure.
+- **Street width** is the gap between building fronts, not the carriageway; the width class in the reading is an estimate from the picture.
+- **The zone rule is provisional** until the corporation's rule for zones A, B and C is known.
 
 ## Imagery terms
 
