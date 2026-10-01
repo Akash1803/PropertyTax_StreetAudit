@@ -13,6 +13,7 @@ can be limited to some buildings with --ids, --ids-file or --line.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import sys
 import time
@@ -23,7 +24,7 @@ import geopandas as gpd
 import pandas as pd
 import shapely
 
-from . import data, evidence, imaging, llm, panoramas, results, rules, visibility
+from . import data, evidence, imaging, llm, panoramas, results, review, rules, visibility
 from .config import Settings, require_key
 from .sources import GoogleStreetView
 
@@ -187,8 +188,34 @@ def stage_results(args, s: Settings) -> None:
     print(json.dumps(summary, indent=1, ensure_ascii=False))
 
 
+def stage_review_page(args, s: Settings) -> None:
+    aimed = _read_json(s.work_dir / "aimed.json", {})
+    tags = set()
+    if args.tag_file:
+        tags = {ln.strip() for ln in Path(args.tag_file).read_text(encoding="utf-8").splitlines() if ln.strip()}
+    only = None
+    if args.ids or args.ids_file or args.line or args.limit:
+        only = set(_selection(args, s, data.load_units(s))["unit_id"])
+    out, n = review.write_page(s, aimed, tags, only)
+    say(f"review page written for {n} buildings: {out}")
+    say("open it in Chrome or Edge; each reviewer downloads their answers and you bring them in with import-review")
+
+
+def stage_import_review(args, s: Settings) -> None:
+    if not args.files:
+        raise SystemExit("give the answer files to import, e.g. import-review review_ward44_Akash_*.json")
+    # PowerShell does not expand wildcards for programs, so patterns are expanded here
+    files = [Path(p) for f in args.files for p in (sorted(glob.glob(f)) if any(c in f for c in "*?") else [f])]
+    if not files:
+        raise SystemExit(f"no file matches {args.files}")
+    out, counts = review.import_answers(s, files)
+    say(f"answers imported into {out}: {counts}")
+    _, res, _, _ = results.load_result(s)
+    print(json.dumps(results.review_scores(res.drop(columns="geometry")), indent=1, ensure_ascii=False))
+
+
 STAGES = {"panoramas": stage_panoramas, "views": stage_views, "images": stage_images, "llm": stage_llm,
-          "results": stage_results}
+          "results": stage_results, "review-page": stage_review_page, "import-review": stage_import_review}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -203,6 +230,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--max-length", type=float, help="use only the first metres of --line")
     ap.add_argument("--limit", type=int, help="work on the first N buildings of the selection")
     ap.add_argument("--retry-failed", action="store_true", help="llm stage: ask again where the last attempt failed")
+    ap.add_argument("--tag-file", help="review-page: building ids to mark as the review set")
+    ap.add_argument("files", nargs="*", help="import-review: answer files downloaded from the review page")
     args = ap.parse_args(argv)
     STAGES[args.stage](args, Settings.load(args.config))
 

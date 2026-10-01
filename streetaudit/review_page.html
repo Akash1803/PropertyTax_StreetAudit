@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Street audit review</title>
+<style>
+:root {
+  --bg: #f3f4f6; --panel: #ffffff; --ink: #111827; --muted: #6b7280; --line: #d1d5db;
+  --accent: #1d4ed8; --accent-ink: #ffffff; --chosen: #1d4ed8; --ok: #15803d; --warn: #b45309; --bad: #b91c1c;
+  --chip: #eef2ff;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f172a; --panel: #111827; --ink: #e5e7eb; --muted: #9ca3af; --line: #374151;
+          --accent: #60a5fa; --accent-ink: #0b1220; --chosen: #60a5fa; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
+          --chip: #1e293b; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 "Segoe UI", Arial, sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+         padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+header h1 { font-size: 16px; margin: 0 8px 0 0; }
+header label { color: var(--muted); }
+header input, header select { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px;
+                              background: var(--panel); color: var(--ink); }
+#progress { color: var(--muted); }
+.spacer { flex: 1; }
+button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+         border-radius: 4px; padding: 5px 10px; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button[aria-pressed="true"] { background: var(--chosen); color: var(--accent-ink); border-color: var(--chosen); }
+button:disabled { opacity: .4; cursor: default; }
+kbd { font: 11px Consolas, monospace; border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; margin-left: 4px;
+      color: var(--muted); }
+button[aria-pressed="true"] kbd, button.primary kbd { color: inherit; border-color: currentColor; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; padding: 16px; }
+@media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+#images { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px;
+         width: calc(50% - 5px); min-width: 280px; flex-grow: 1; }
+figure img { width: 100%; display: block; cursor: zoom-in; border-radius: 3px; }
+figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+aside { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px;
+        align-self: start; position: sticky; top: 64px; }
+aside h2 { font-size: 18px; margin: 0; }
+.sub { color: var(--muted); margin: 2px 0 10px; }
+.chip { display: inline-block; background: var(--chip); border-radius: 10px; padding: 0 8px; font-size: 12px; margin-left: 6px; }
+fieldset { border: none; border-top: 1px solid var(--line); margin: 10px 0 0; padding: 10px 0 0; }
+legend { font-weight: 600; padding: 0; margin-bottom: 6px; }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; }
+textarea { width: 100%; min-height: 44px; font: inherit; padding: 6px; border: 1px solid var(--line); border-radius: 4px;
+           background: var(--panel); color: var(--ink); }
+.actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+#status { margin-top: 8px; font-size: 13px; color: var(--muted); min-height: 1.4em; }
+#status.saved { color: var(--ok); }
+#status.error { color: var(--bad); }
+#reveal { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+#reveal table { width: 100%; border-collapse: collapse; font-size: 13px; }
+#reveal td { padding: 3px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+#reveal td:first-child { color: var(--muted); white-space: nowrap; width: 40%; }
+#banner { display: none; background: #fef3c7; color: #78350f; padding: 6px 16px; border-bottom: 1px solid #f59e0b; }
+#banner.show { display: block; }
+#lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center;
+            justify-content: center; z-index: 20; cursor: zoom-out; }
+#lightbox.show { display: flex; }
+#lightbox img { max-width: 96vw; max-height: 94vh; }
+.empty { padding: 40px; color: var(--muted); }
+.help { font-size: 12px; color: var(--muted); margin-top: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Street audit review</h1>
+  <label>Reviewer <input id="reviewer" size="12" placeholder="your name"></label>
+  <label>Part
+    <select id="part">
+      <option value="all">All buildings</option>
+      <option value="1">Part 1 of 2 (north half)</option>
+      <option value="2">Part 2 of 2 (south half)</option>
+    </select>
+  </label>
+  <label>Show
+    <select id="show">
+      <option value="open">Not answered yet</option>
+      <option value="all">All</option>
+      <option value="tag">Review set only</option>
+      <option value="done">Answered</option>
+      <option value="Verified">LLM said Verified</option>
+      <option value="Unsure">LLM said Unsure</option>
+      <option value="Pending">LLM not asked yet</option>
+    </select>
+  </label>
+  <label>Go to <input id="goto" size="10" placeholder="building id"></label>
+  <span id="progress"></span>
+  <span class="spacer"></span>
+  <button id="download" class="primary" title="Save your answers as a file to send back">Download answers</button>
+  <button id="load" title="Add answers from a file, for example from another computer">Load answers</button>
+  <input id="loadfile" type="file" accept=".json" hidden>
+</header>
+<div id="banner"></div>
+<main>
+  <section id="images" aria-label="Street views, zoom and ortho"></section>
+  <aside>
+    <h2 id="uid"></h2>
+    <div class="sub" id="where"></div>
+
+    <fieldset>
+      <legend>1. Is the building between the yellow lines in view 1 the outlined building on the ortho?</legend>
+      <div class="choices" id="q-ident">
+        <button data-v="yes">Yes<kbd>Y</kbd></button>
+        <button data-v="no">No, wrong building<kbd>N</kbd></button>
+        <button data-v="cannot tell">Cannot tell<kbd>U</kbd></button>
+      </div>
+    </fieldset>
+
+    <fieldset id="f-floors">
+      <legend>2. Floors (ground floor = G)</legend>
+      <div class="choices" id="q-floors"></div>
+    </fieldset>
+
+    <fieldset id="f-usage">
+      <legend>3. Usage</legend>
+      <div class="choices" id="q-usage"></div>
+    </fieldset>
+
+    <fieldset id="f-shop">
+      <legend>4. Ground floor</legend>
+      <div class="choices"><button id="q-shop" aria-pressed="false">Shop or other trade seen<kbd>S</kbd></button></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Note (optional)</legend>
+      <textarea id="note" placeholder="anything the tax team should know"></textarea>
+    </fieldset>
+
+    <div class="actions">
+      <button id="save" class="primary">Save and next<kbd>Enter</kbd></button>
+      <button id="prev">Previous<kbd>&larr;</kbd></button>
+      <button id="next">Next<kbd>&rarr;</kbd></button>
+    </div>
+    <div id="status" role="status"></div>
+
+    <div id="reveal">
+      <button id="toggle-reveal" aria-expanded="false">Show record and LLM answer<kbd>H</kbd></button>
+      <div id="reveal-body" hidden></div>
+    </div>
+    <p class="help">Answer from the pictures first; the record and the LLM answer stay hidden until you ask, so your
+      answer is an independent check. Click a picture to enlarge it. Answers are kept in this browser; use
+      "Download answers" to send them back.</p>
+  </aside>
+</main>
+<div id="lightbox"><img alt=""></div>
+
+<script src="review_data.js"></script>
+<script>
+"use strict";
+const D = window.REVIEW;
+const STORE = "streetaudit-review:" + D.run;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+
+// ---------- storage (answers stay in this browser; downloads are the real copy)
+let storageOK = true;
+function readStore() {
+  try { return JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { storageOK = false; return {}; }
+}
+function writeStore() {
+  try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) { storageOK = false; }
+}
+const state = Object.assign({answers: {}, reviewer: "", lastDownload: "", part: "all", show: "open"}, readStore());
+
+// ---------- the list of buildings in view
+const half = Math.ceil(D.units.length / 2);
+D.units.forEach((u, i) => u.part = i < half ? "1" : "2");   // units arrive sorted north to south
+let list = [], pos = 0, current = null;
+
+function buildList(keepId) {
+  const part = state.part, show = state.show;
+  list = D.units.filter(u => (part === "all" || u.part === part) && (
+    show === "all" ||
+    (show === "open" && !state.answers[u.id]) ||
+    (show === "done" && state.answers[u.id]) ||
+    (show === "tag" && u.tag) ||
+    (show === u.verdict)));
+  pos = Math.max(0, keepId ? list.findIndex(u => u.id === keepId) : 0);
+  render();
+}
+
+// ---------- answer buttons
+const FLOORS = [["0", "G"], ["1", "G+1"], ["2", "G+2"], ["3", "G+3"], ["4", "G+4"], ["5", "G+5"], ["6", "G+6"],
+                ["cannot tell", "Cannot tell"]];
+$("q-floors").innerHTML = FLOORS.map(([v, t]) =>
+  `<button data-v="${v}">${t}<kbd>${v === "cannot tell" ? "/" : v}</kbd></button>`).join("");
+const USAGE_KEYS = {"Residential": "R", "Commercial": "C", "Mixed": "M", "Industrial": "I", "Under Construction": "X",
+                    "Vacant Land": "V", "Others": "O"};
+$("q-usage").innerHTML = [...D.usages, "cannot tell"].map(v =>
+  `<button data-v="${esc(v)}">${esc(v === "cannot tell" ? "Cannot tell" : v)}${USAGE_KEYS[v] ? `<kbd>${USAGE_KEYS[v]}</kbd>` : ""}</button>`).join("");
+
+let draft = {};
+function press(groupId, value) {
+  document.querySelectorAll(`#${groupId} button`).forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(value))));
+}
+function setIdent(v) { draft.ident = v; press("q-ident", v); enableDetails(); }
+function setFloors(v) { if (draft.ident !== "yes") return; draft.floors = v; press("q-floors", v); }
+function setUsage(v) { if (draft.ident !== "yes") return; draft.usage = v; press("q-usage", v); }
+function toggleShop() { if (draft.ident !== "yes") return; draft.shop = !draft.shop; $("q-shop").setAttribute("aria-pressed", String(draft.shop)); }
+function enableDetails() {
+  const on = draft.ident === "yes";
+  document.querySelectorAll("#q-floors button, #q-usage button, #q-shop").forEach(b => b.disabled = !on);
+}
+$("q-ident").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setIdent(b.dataset.v); });
+$("q-floors").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setFloors(b.dataset.v); });
+$("q-usage").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setUsage(b.dataset.v); });
+$("q-shop").addEventListener("click", toggleShop);
+
+// ---------- showing one building
+function render() {
+  const images = $("images");
+  if (!list.length) {
+    current = null;
+    images.innerHTML = `<div class="empty">No building in this list. Change "Part" or "Show" above.</div>`;
+    ["uid", "where"].forEach(id => $(id).textContent = "");
+    progress();
+    return;
+  }
+  current = list[pos];
+  const u = current;
+  const figs = u.views.map((v, i) =>
+    `<figure><img src="${esc(v.img)}" alt="view ${i + 1}"><figcaption>View ${i + 1}${i === 0 ? " (closest, reference)" : ""}
+     - captured ${esc(v.date)} - camera ${esc(v.dist)} m away</figcaption></figure>`);
+  // the ortho goes right after view 1: question 1 compares the two
+  if (u.ortho) figs.splice(1, 0, `<figure><img src="${esc(u.ortho)}" alt="ortho"><figcaption>Ortho, north up: yellow = this
+     building, cyan dots = cameras with their view numbers</figcaption></figure>`);
+  if (u.zoom) figs.push(`<figure><img src="${esc(u.zoom)}" alt="zoom"><figcaption>Zoom of view ${esc(u.zoom_of)}, ground floor
+     (door numbers, boards)</figcaption></figure>`);
+  images.innerHTML = figs.join("");
+  $("uid").innerHTML = esc(u.id) + (u.tag ? '<span class="chip">review set</span>' : "");
+  $("where").textContent = `${u.road || "road not recorded"} - ${pos + 1} of ${list.length} in this list`;
+  const saved = state.answers[u.id];
+  draft = saved ? {ident: saved.ident, floors: saved.floors, usage: saved.usage, shop: !!saved.shop} : {shop: false};
+  press("q-ident", draft.ident); press("q-floors", draft.floors); press("q-usage", draft.usage);
+  $("q-shop").setAttribute("aria-pressed", String(!!draft.shop));
+  $("note").value = saved ? (saved.note || "") : "";
+  enableDetails();
+  status(saved ? `Answered by ${saved.by}, ${new Date(saved.at).toLocaleString()}` : "", saved ? "saved" : "");
+  hideReveal();
+  progress();
+  window.scrollTo(0, 0);
+}
+
+function progress() {
+  const inPart = D.units.filter(u => state.part === "all" || u.part === state.part);
+  const done = inPart.filter(u => state.answers[u.id]).length;
+  $("progress").textContent = `${done} of ${inPart.length} answered in this part`;
+  const unsent = Object.values(state.answers).filter(a => a.at > (state.lastDownload || "")).length;
+  const banner = $("banner");
+  if (!storageOK) {
+    banner.textContent = "This browser does not keep answers between visits. Download your answers before closing the tab.";
+    banner.classList.add("show");
+  } else if (unsent >= 25) {
+    banner.textContent = `${unsent} answers are not in a downloaded file yet. Press "Download answers" now and then.`;
+    banner.classList.add("show");
+  } else {
+    banner.classList.remove("show");
+  }
+}
+
+function status(text, cls) { const s = $("status"); s.textContent = text; s.className = cls || ""; }
+
+// ---------- saving and moving
+function save() {
+  if (!current) return;
+  const by = $("reviewer").value.trim();
+  if (!by) { status("Type your name in the Reviewer box first.", "error"); $("reviewer").focus(); return; }
+  if (!draft.ident) { status("Answer question 1 first.", "error"); return; }
+  if (draft.ident === "yes" && (draft.floors === undefined || draft.usage === undefined)) {
+    status("Choose floors and usage (or Cannot tell).", "error"); return;
+  }
+  const answer = {ident: draft.ident, by, at: new Date().toISOString(), note: $("note").value.trim()};
+  if (draft.ident === "yes") Object.assign(answer, {floors: draft.floors, usage: draft.usage, shop: !!draft.shop});
+  state.answers[current.id] = answer;
+  writeStore();
+  move(1, true);
+}
+function move(step, afterSave) {
+  if (!list.length) return;
+  const next = pos + step;
+  if (next < 0 || next >= list.length) {
+    status(afterSave ? "Saved. That was the last building in this list." : "No more buildings this way.", afterSave ? "saved" : "");
+    progress();
+    return;
+  }
+  pos = next;
+  render();
+  if (afterSave) status("Saved the previous building.", "saved");
+}
+$("save").addEventListener("click", save);
+$("prev").addEventListener("click", () => move(-1));
+$("next").addEventListener("click", () => move(1));
+
+// ---------- record and LLM answer, hidden until asked for
+function hideReveal() { $("reveal-body").hidden = true; $("toggle-reveal").setAttribute("aria-expanded", "false");
+                        $("toggle-reveal").firstChild.textContent = "Show record and LLM answer"; }
+function toggleReveal() {
+  if (!current) return;
+  const body = $("reveal-body");
+  if (!body.hidden) { hideReveal(); return; }
+  const r = current.rec, l = current.llm;
+  const rows = [["Survey usage", r.usage], ["Survey floors", r.floors], ["Assessment usages", r.assess],
+                ["Door numbers on record", r.doors]];
+  rows.push(["LLM verdict", l ? `${l.verdict} - ${l.why}` : (current.verdict === "Pending" ? "not asked yet" : current.verdict)]);
+  if (l) rows.push(["LLM floors", l.floors], ["LLM usage", l.usage], ["LLM possible shop", l.shop], ["LLM flag", l.flag]);
+  body.innerHTML = "<table>" + rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v ?? "-")}</td></tr>`).join("") + "</table>";
+  body.hidden = false;
+  $("toggle-reveal").setAttribute("aria-expanded", "true");
+  $("toggle-reveal").firstChild.textContent = "Hide record and LLM answer";
+}
+$("toggle-reveal").addEventListener("click", toggleReveal);
+
+// ---------- download / load
+$("download").addEventListener("click", () => {
+  const by = $("reviewer").value.trim() || "reviewer";
+  const now = new Date();
+  const stamp = now.toISOString().slice(0, 16).replace(/[-:T]/g, "");
+  const blob = new Blob([JSON.stringify({run: D.run, reviewer: by, saved_at: now.toISOString(), answers: state.answers}, null, 1)],
+                        {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `review_${D.run}_${by.replace(/[^\w-]+/g, "_")}_${stamp}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  state.lastDownload = now.toISOString();
+  writeStore();
+  progress();
+  status(`Downloaded ${Object.keys(state.answers).length} answers.`, "saved");
+});
+$("load").addEventListener("click", () => $("loadfile").click());
+$("loadfile").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (data.run && data.run !== D.run) throw new Error(`the file is for run ${data.run}`);
+    let added = 0;
+    for (const [id, a] of Object.entries(data.answers || {})) {
+      const mine = state.answers[id];
+      if (!mine || (a.at || "") > (mine.at || "")) { state.answers[id] = a; added++; }
+    }
+    writeStore();
+    buildList(current && current.id);
+    status(`Loaded ${added} answers from ${file.name}.`, "saved");
+  } catch (err) {
+    status("Could not load that file: " + err.message, "error");
+  }
+  e.target.value = "";
+});
+
+// ---------- header controls
+$("reviewer").value = state.reviewer;
+$("reviewer").addEventListener("change", () => { state.reviewer = $("reviewer").value.trim(); writeStore(); });
+$("part").value = state.part;
+$("show").value = state.show;
+$("part").addEventListener("change", () => { state.part = $("part").value; writeStore(); buildList(); });
+$("show").addEventListener("change", () => { state.show = $("show").value; writeStore(); buildList(); });
+$("goto").addEventListener("keydown", e => {
+  if (e.key !== "Enter") return;
+  const q = $("goto").value.trim().toLowerCase();
+  let i = list.findIndex(u => u.id.toLowerCase() === q || u.b.toLowerCase() === q);
+  if (i < 0) {                       // not in the current list: show everything and look again
+    state.show = "all"; state.part = "all"; $("show").value = "all"; $("part").value = "all"; buildList();
+    i = list.findIndex(u => u.id.toLowerCase() === q || u.b.toLowerCase() === q);
+  }
+  if (i >= 0) { pos = i; render(); $("goto").blur(); } else status(`No building ${q} with pictures.`, "error");
+});
+
+// ---------- pictures
+$("images").addEventListener("click", e => {
+  if (e.target.tagName !== "IMG") return;
+  $("lightbox").querySelector("img").src = e.target.src;
+  $("lightbox").classList.add("show");
+});
+$("lightbox").addEventListener("click", () => $("lightbox").classList.remove("show"));
+
+// ---------- keyboard
+document.addEventListener("keydown", e => {
+  if ($("lightbox").classList.contains("show")) { if (e.key === "Escape") $("lightbox").classList.remove("show"); return; }
+  const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
+  if (typing) {
+    if (e.key === "Enter" && e.ctrlKey) { e.preventDefault(); save(); }
+    return;
+  }
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  const k = e.key;
+  if (k === "Enter") { e.preventDefault(); save(); }
+  else if (k === "ArrowRight") move(1);
+  else if (k === "ArrowLeft") move(-1);
+  else if (k === "y" || k === "Y") setIdent("yes");
+  else if (k === "n" || k === "N") setIdent("no");
+  else if (k === "u" || k === "U") setIdent("cannot tell");
+  else if (/^[0-6]$/.test(k)) setFloors(k);
+  else if (k === "/" || k === "?") setFloors("cannot tell");
+  else if (k === "s" || k === "S") toggleShop();
+  else if (k === "h" || k === "H") toggleReveal();
+  else {
+    const usage = Object.keys(USAGE_KEYS).find(u => USAGE_KEYS[u] === k.toUpperCase());
+    if (usage) setUsage(usage);
+  }
+});
+
+buildList();
+</script>
+</body>
+</html>

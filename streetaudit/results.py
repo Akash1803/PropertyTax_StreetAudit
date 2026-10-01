@@ -14,7 +14,8 @@ from . import evidence, rules
 from .config import Settings
 from .doors import norm_door
 
-REVIEW_FIELDS = ("review", "reviewer", "review_note")
+# filled in by reviewers (review page or QGIS); kept whenever the result is written again
+REVIEW_FIELDS = ("review", "reviewer", "review_note", "rev_ident", "rev_floors", "rev_usage", "rev_shop")
 
 
 def build_rows(units: gpd.GeoDataFrame, plan: dict, llm_runs: dict, doors: dict, assess: dict,
@@ -66,7 +67,7 @@ def build_rows(units: gpd.GeoDataFrame, plan: dict, llm_runs: dict, doors: dict,
             "conf_ident": first.get("identity_confidence"), "conf_floors": conf.get("floors"), "conf_usage": conf.get("usage"),
             "pano_dates": ", ".join(dates), "llm_note": cls.get("notes"),
             "model": next((r.get("model") for r in runs if r.get("model")), None),
-            "evidence": None, "review": None, "reviewer": None, "review_note": None,
+            "evidence": None, **{f: None for f in REVIEW_FIELDS},
             "geometry": unit.geometry,
         }
         if info["views"]:
@@ -102,24 +103,47 @@ def write_layers(rows: list[dict], view_rows: list[dict], panos: gpd.GeoDataFram
     res = gpd.GeoDataFrame(rows, crs=s.metric_epsg).to_crs(4326)
     for col in ("poss_shop", "runs_agree"):                  # yes / no / empty reads better in QGIS than 1 / 0
         res[col] = res[col].map({True: "yes", False: "no"})
-    for col in ("llm_floors", "rec_floors", "shutters"):
-        res[col] = pd.to_numeric(res[col], errors="coerce").astype("Int64")
     previous = latest_result(s.run_dir)
     if previous is not None:
         old = gpd.read_file(previous, layer="buildings_result", ignore_geometry=True)
-        old = old[["unit_id", *REVIEW_FIELDS]].dropna(how="all", subset=list(REVIEW_FIELDS)).set_index("unit_id")
-        for f in REVIEW_FIELDS:
+        kept = [f for f in REVIEW_FIELDS if f in old.columns]
+        old = old[["unit_id", *kept]].dropna(how="all", subset=kept).set_index("unit_id")
+        for f in kept:
             res[f] = res["unit_id"].map(old[f]) if len(old) else None
-
-    number = 1 if previous is None else (1 if previous.stem == "result" else int(previous.stem[7:])) + 1
-    new = s.run_dir / f"result_{number}.gpkg" if number > 1 else s.run_dir / "result.gpkg"
-    res.to_file(new, layer="buildings_result", driver="GPKG")
-    if view_rows:
-        gpd.GeoDataFrame(view_rows, crs=s.metric_epsg).to_crs(4326).to_file(new, layer="views", driver="GPKG")
+    views = gpd.GeoDataFrame(view_rows, crs=s.metric_epsg).to_crs(4326) if view_rows else None
     used = {v["pano_id"] for v in view_rows}
     p = panos.copy()
     p["used"] = p["pano_id"].isin(used)
-    p.to_crs(4326).to_file(new, layer="panoramas", driver="GPKG")
+    return save_result(res, views, p.to_crs(4326), s)
+
+
+def _typed(res: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    res = res.copy()
+    for col in ("llm_floors", "rec_floors", "shutters", "rev_floors"):
+        if col in res.columns:
+            res[col] = pd.to_numeric(res[col], errors="coerce").astype("Int64")
+    for col in REVIEW_FIELDS:
+        if col in res.columns and col != "rev_floors":
+            res[col] = res[col].astype(object).where(res[col].notna(), None)
+    return res
+
+
+def save_result(res: gpd.GeoDataFrame, views: gpd.GeoDataFrame | None, panos: gpd.GeoDataFrame | None,
+                s: Settings) -> Path:
+    """Write the three layers to a new file and put it in place of the newest result.
+
+    When the newest result is open in QGIS it cannot be replaced (and must not be deleted under QGIS),
+    so the new file is kept beside it as result_<n>.gpkg. Returns the file that holds the new result.
+    """
+    res = _typed(res)
+    previous = latest_result(s.run_dir)
+    number = 1 if previous is None else (1 if previous.stem == "result" else int(previous.stem[7:])) + 1
+    new = s.run_dir / (f"result_{number}.gpkg" if number > 1 else "result.gpkg")
+    res.to_file(new, layer="buildings_result", driver="GPKG")
+    if views is not None and len(views):
+        views.to_file(new, layer="views", driver="GPKG")
+    if panos is not None and len(panos):
+        panos.to_file(new, layer="panoramas", driver="GPKG")
     back = len(gpd.read_file(new, layer="buildings_result", ignore_geometry=True))
     if back != len(res):
         raise RuntimeError(f"result layer has {back} rows, expected {len(res)}")
@@ -130,6 +154,19 @@ def write_layers(rows: list[dict], view_rows: list[dict], panos: gpd.GeoDataFram
         except PermissionError:
             pass                               # open in QGIS: leave it alone, the new file stands beside it
     return new
+
+
+def load_result(s: Settings) -> tuple[Path, gpd.GeoDataFrame, gpd.GeoDataFrame | None, gpd.GeoDataFrame | None]:
+    """The newest result file and its three layers."""
+    path = latest_result(s.run_dir)
+    if path is None:
+        raise FileNotFoundError(f"no result in {s.run_dir}; run the results stage first")
+    import pyogrio
+    layers = {name for name, _ in pyogrio.list_layers(path)}
+    res = gpd.read_file(path, layer="buildings_result")
+    views = gpd.read_file(path, layer="views") if "views" in layers else None
+    panos = gpd.read_file(path, layer="panoramas") if "panoramas" in layers else None
+    return path, res, views, panos
 
 
 def summarise(rows: list[dict]) -> dict:
@@ -153,7 +190,40 @@ def summarise(rows: list[dict]) -> dict:
         "possible_shops": int((df["poss_shop"] == True).sum()),  # noqa: E712
         "door_numbers_matched": int((df["door_match"] != "").sum()),
         "unsure_reasons": dict(Counter(df[df["verdict"] == "Unsure"]["verdict_why"].str.replace(r"\(.*?\)|:.*$", "", regex=True).str.strip()).most_common(8)),
+        "review": review_scores(df),
     }
+
+
+def _same_usage(a, b) -> bool:
+    return rules._norm_usage(a) == rules._norm_usage(b)
+
+
+def review_scores(df: pd.DataFrame) -> dict:
+    """How the LLM and the survey record compare with what the reviewers saw.
+
+    Only buildings a reviewer confirmed as the right building count for floors and usage.
+    """
+    if "rev_ident" not in df.columns:
+        return {"reviewed": 0}
+    rev = df[df["rev_ident"].notna()]
+    out = {"reviewed": len(rev), "reviewer_said": dict(Counter(rev["rev_ident"]))}
+    ver = rev[rev["verdict"] == "Verified"]
+    out["llm_verified_reviewed"] = len(ver)
+    out["llm_verified_but_wrong_building"] = int((ver["rev_ident"] == "no").sum())
+    right = rev[rev["rev_ident"] == "yes"]
+
+    def pct(frame, test):
+        return {"n": len(frame), "pct": None if not len(frame) else round(100 * frame.apply(test, axis=1).mean(), 1)}
+
+    fl = right[pd.to_numeric(right["rev_floors"], errors="coerce").notna()]
+    out["floors_llm_vs_reviewer"] = pct(fl[fl["llm_floors"].notna()], lambda r: int(r["llm_floors"]) == int(r["rev_floors"]))
+    out["floors_record_vs_reviewer"] = pct(fl[fl["rec_floors"].notna()], lambda r: int(r["rec_floors"]) == int(r["rev_floors"]))
+    us = right[right["rev_usage"].notna() & (right["rev_usage"] != "cannot tell")]
+    out["usage_llm_vs_reviewer"] = pct(us[us["llm_usage"].notna()], lambda r: _same_usage(r["llm_usage"], r["rev_usage"]))
+    out["usage_record_vs_reviewer"] = pct(us[us["rec_usage"].notna()], lambda r: _same_usage(r["rec_usage"], r["rev_usage"]))
+    shop = right[right["poss_shop"].isin([True, "yes"])]
+    out["possible_shop_confirmed"] = {"flagged": len(shop), "reviewer_saw_shop": int((shop["rev_shop"] == "yes").sum())}
+    return out
 
 
 def write_summary(rows: list[dict], s: Settings) -> dict:

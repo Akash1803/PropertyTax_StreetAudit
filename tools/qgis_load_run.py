@@ -46,6 +46,28 @@ def latest_result(run_dir):
     return best
 
 
+USAGES = ["Residential", "Commercial", "Mixed", "Industrial", "Educational Institutions", "Government Building",
+          "Temple", "Church", "Office / Lodge / Theater / Restaurants", "Under Construction", "Vacant Land", "Others",
+          "cannot tell"]
+
+
+def _review_widgets(layer):
+    """Drop-down lists for the review fields, so a reviewer can also answer in the QGIS attribute form."""
+    from qgis.core import QgsEditorWidgetSetup
+
+    def value_map(field, values):
+        idx = layer.fields().indexOf(field)
+        if idx >= 0:
+            layer.setEditorWidgetSetup(idx, QgsEditorWidgetSetup("ValueMap", {"map": [{v: v} for v in values]}))
+
+    value_map("rev_ident", ["yes", "no", "cannot tell"])
+    value_map("rev_usage", USAGES)
+    value_map("rev_shop", ["yes", "no"])
+    idx = layer.fields().indexOf("rev_floors")
+    if idx >= 0:
+        layer.setEditorWidgetSetup(idx, QgsEditorWidgetSetup("Range", {"Min": 0, "Max": 15, "Step": 1, "AllowNull": True}))
+
+
 def load_run(run_dir, group_name=None):
     gpkg = latest_result(run_dir)
     if gpkg is None:
@@ -74,6 +96,7 @@ def load_run(run_dir, group_name=None):
     for lyr in (verdict, flag):
         lyr.actions().addAction(QgsAction(Qgis.AttributeActionType.OpenUrl, "Show street view evidence", EVIDENCE_URL,
                                           "", False, "Evidence", {"Feature", "Canvas"}))
+        _review_widgets(lyr)
 
     group = project.layerTreeRoot().insertGroup(0, group_name)
     for lyr, visible in ((panos, False), (views, False), (flag, False), (verdict, True)):
