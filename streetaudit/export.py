@@ -114,12 +114,15 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
             "verify_note": kept.get((r.building_id, int(r.part)), (None, None))[1],
             "geometry": r.geometry,
         })
-        for k, v in (corrections or {}).get(r.unit_id, {}).items():
+        fix = (corrections or {}).get(r.unit_id, {})
+        for k, v in fix.items():
             if k.startswith("_"):                       # comments such as "_why"
                 continue
             if k not in rows[-1] or k == "geometry":
                 raise ValueError(f"correction for {r.unit_id}: unknown attribute {k!r}")
             rows[-1][k] = v
+        if fix and "vs_survey" not in fix:              # the comparison follows the corrected values
+            rows[-1]["vs_survey"] = _vs_survey(rows[-1]["bldg_type"], rows[-1]["floor_count"], r.rec_usage, r.rec_floors)
     gdf = gpd.GeoDataFrame(rows, crs=result.crs).to_crs(4326)
     gdf["floor_count"] = pd.to_numeric(gdf["floor_count"], errors="coerce").astype("Int64")
     gdf["units_seen"] = pd.to_numeric(gdf["units_seen"], errors="coerce").astype("Int64")

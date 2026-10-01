@@ -54,8 +54,9 @@ def test_export_writes_the_identified_values_and_keeps_verification(tmp_path):
 
     # a correction from an older street view replaces the reading
     export_geojson(result(), AIMED, ANSWERS, out, evidence,
-                   corrections={"A": {"bldg_type": "Commercial", "floors": "G", "_why": "old view"}})
-    assert gpd.read_file(out).set_index("gis_id").loc["A", "bldg_type"] == "Commercial"
+                   corrections={"A": {"bldg_type": "Residential", "floors": "G+1", "floor_count": 1, "_why": "old view"}})
+    fixed = gpd.read_file(out).set_index("gis_id").loc["A"]
+    assert fixed["bldg_type"] == "Residential" and fixed["vs_survey"] == "same"   # comparison follows the fix
     with pytest.raises(ValueError):
         export_geojson(result(), AIMED, ANSWERS, out, evidence, corrections={"A": {"no_such_field": 1}})
     export_geojson(result(), AIMED, ANSWERS, out, evidence)
