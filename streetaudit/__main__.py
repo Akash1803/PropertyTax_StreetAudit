@@ -13,8 +13,10 @@ can be limited to some buildings with --ids, --ids-file or --line.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import glob
 import json
+import shutil
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -24,7 +26,7 @@ import geopandas as gpd
 import pandas as pd
 import shapely
 
-from . import data, evidence, imaging, llm, panoramas, results, review, rules, visibility
+from . import data, evidence, export, imaging, llm, panoramas, results, review, rules, visibility
 from .config import Settings, require_key
 from .sources import GoogleStreetView
 
@@ -172,8 +174,9 @@ def stage_llm(args, s: Settings) -> None:
 
 
 def stage_results(args, s: Settings) -> None:
+    # always the whole run: the result layer must not shrink to the buildings of the last batch
     units = data.load_units(s)
-    sel = _selection(args, s, units)
+    sel = units
     aimed = _read_json(s.work_dir / "aimed.json", {})
     plan = _read_json(s.work_dir / "views.json", {})
     merged = {u: aimed.get(u, plan[u]) for u in plan}
@@ -181,7 +184,8 @@ def stage_results(args, s: Settings) -> None:
                 for u in sel["unit_id"] if merged.get(u, {}).get("views")}
     rows, view_rows = results.build_rows(sel, merged, llm_runs, data.load_doors(s), data.load_assessment_usages(s),
                                          s, GoogleStreetView)
-    evidence.write_index(s.evidence_dir, rows, f"Street audit - {s.run_dir.name}")
+    if any(r["evidence"] for r in rows):            # no pages once the full-size pictures are pruned
+        evidence.write_index(s.evidence_dir, rows, f"Street audit - {s.run_dir.name}")
     out = results.write_layers(rows, view_rows, gpd.read_file(s.work_dir / "panoramas.gpkg"), s)
     summary = results.write_summary(rows, s)
     say(f"result written: {out}")
@@ -214,8 +218,38 @@ def stage_import_review(args, s: Settings) -> None:
     print(json.dumps(results.review_scores(res.drop(columns="geometry")), indent=1, ensure_ascii=False))
 
 
+def stage_export(args, s: Settings) -> None:
+    aimed = _read_json(s.work_dir / "aimed.json", {})
+    only = None
+    if args.ids or args.ids_file or args.line or args.limit:
+        only = set(_selection(args, s, data.load_units(s))["unit_id"])
+    _, res, _, _ = results.load_result(s)
+    units = res["unit_id"] if only is None else [u for u in res["unit_id"] if u in only]
+    answers = {u: [r["answer"] for r in _llm_runs(s.work_dir / "llm" / f"{u}.json", llm.request_key(aimed[u]))
+                   if r.get("answer")] for u in units if aimed.get(u, {}).get("views")}
+    out = s.run_dir / f"{s.run_dir.name}_AI_check.geojson"
+    n = export.export_geojson(res, aimed, answers, out, s.evidence_dir, only)
+    style = out.with_suffix(".qml")           # same name as the layer: QGIS applies it when the layer is added
+    if not style.exists():
+        shutil.copyfile(Path(export.__file__).with_name("ai_check_style.qml"), style)
+    size = sum(p.stat().st_size for p in (out.parent / "images").glob("*.jpg")) / 1e6
+    say(f"layer written: {out} ({n} buildings) | pictures: {out.parent / 'images'} ({size:.1f} MB)")
+
+
+def stage_prune(args, s: Settings) -> None:
+    """Delete the full-size pictures and chips. The layer keeps its small pictures; the rest can be fetched again."""
+    freed = 0
+    for folder, patterns in ((s.evidence_dir, ("*.jpg", "*.html", "*.js")), (s.work_dir / "chips", ("*.jpg",))):
+        for pattern in patterns:
+            for p in folder.glob(pattern):
+                freed += p.stat().st_size
+                p.unlink()
+    say(f"freed {freed / 1e6:.0f} MB (full-size street views, zooms, ortho chips, evidence pages)")
+
+
 STAGES = {"panoramas": stage_panoramas, "views": stage_views, "images": stage_images, "llm": stage_llm,
-          "results": stage_results, "review-page": stage_review_page, "import-review": stage_import_review}
+          "results": stage_results, "export": stage_export, "prune": stage_prune,
+          "review-page": stage_review_page, "import-review": stage_import_review}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -232,8 +266,13 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--retry-failed", action="store_true", help="llm stage: ask again where the last attempt failed")
     ap.add_argument("--tag-file", help="review-page: building ids to mark as the review set")
     ap.add_argument("files", nargs="*", help="import-review: answer files downloaded from the review page")
+    ap.add_argument("--second-opinion", choices=["verify", "all", "none"],
+                    help="override the setting: ask the LLM a second time before verifying (verify), always, or never")
     args = ap.parse_args(argv)
-    STAGES[args.stage](args, Settings.load(args.config))
+    s = Settings.load(args.config)
+    if args.second_opinion:
+        s = dataclasses.replace(s, second_opinion=args.second_opinion)
+    STAGES[args.stage](args, s)
 
 
 if __name__ == "__main__":

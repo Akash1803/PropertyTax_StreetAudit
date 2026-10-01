@@ -35,8 +35,11 @@ def build_rows(units: gpd.GeoDataFrame, plan: dict, llm_runs: dict, doors: dict,
         neighbours = {b: doors.get(b, set()) for b in set(near["building_id"]) if b != unit.building_id}
         own = doors.get(unit.building_id, set())
         core_ok = any(v.get("core_span") for v in info["views"])
-        second_required = s.second_opinion != "none"
+        # a reading made once, deliberately, by a person or an assistant checking by eye is not re-asked
+        second_required = s.second_opinion != "none" and not any(r.get("single_reading") for r in runs)
         verdict, why = rules.verdict(info["access"], answers, error, own, neighbours, core_ok, second_required)
+        if any(r.get("single_reading") for r in runs):
+            why = why.replace("(LLM asked once)", "(checked once by eye)")
         dates = sorted({v["pano_date"] for v in info["views"] if v.get("pano_date")})
         checked = verdict in ("Verified", "Unsure") and bool(answers)
         cmp = rules.compare(answers, info["record"], checked, dates[-1] if dates else None, s.old_imagery_before)
@@ -70,7 +73,7 @@ def build_rows(units: gpd.GeoDataFrame, plan: dict, llm_runs: dict, doors: dict,
             "evidence": None, **{f: None for f in REVIEW_FIELDS},
             "geometry": unit.geometry,
         }
-        if info["views"]:
+        if info["views"] and info["views"][0].get("image") and (s.evidence_dir / info["views"][0]["image"]).exists():
             row["evidence"] = evidence.write_page(s.evidence_dir, row, info, answers, source)
         rows.append(row)
         said = first.get("views") or []

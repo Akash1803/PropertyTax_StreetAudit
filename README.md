@@ -50,7 +50,11 @@ python -m streetaudit -c configs\ward44.toml views
 python -m streetaudit -c configs\ward44.toml images
 python -m streetaudit -c configs\ward44.toml llm
 python -m streetaudit -c configs\ward44.toml results
+python -m streetaudit -c configs\ward44.toml export
+python -m streetaudit -c configs\ward44.toml prune
 ```
+
+`export` writes the deliverable: one GeoJSON layer with the identified building type, floors and other details in its attributes, one small picture per building (view 1 with the target marked, about 50 KB) and a QGIS style of the same name. `prune` then deletes the full-size pictures and ortho chips the earlier stages needed; they can be fetched again.
 
 Every stage keeps what is already done, so an interrupted run can be continued.
 
@@ -65,7 +69,22 @@ To work on part of the ward, add one of these to any stage:
 
 ## What comes out
 
-Everything is in the run folder:
+The deliverable is `<run>_AI_check.geojson` in the run folder, with `images\` and `<run>_AI_check.qml` beside it. Add the GeoJSON to QGIS and the style loads with it:
+
+- buildings coloured by the type the script identified, labelled with floors and type;
+- the attribute form shows the marked picture at the top, then the identified details, the survey values (for comparison only), and two fields for the checker: `verified` and `verify_note`;
+- the map tip shows the picture; the action "Open in Google Street View" opens the same panorama live.
+
+| Attribute | Meaning |
+|---|---|
+| `check` | Verified / Unsure / Not visible / Not street-facing: is the picture proven to show this building |
+| `bldg_type`, `floors`, `floor_count` | identified from the pictures; floors counted from ground = 0 (G+1 = 1) |
+| `floor_use`, `shop_gf`, `units_seen` | use floor by floor, shop on the ground floor (yes / possible / no), dwellings or shops seen |
+| `construct`, `roof`, `terrace`, `front`, `boards`, `other_boards`, `extras` | other details for the tax check |
+| `survey_type`, `survey_floors`, `vs_survey` | the survey values and where they differ; never used as the answer |
+| `verified`, `verify_note` | filled in by the checker; kept when the layer is exported again |
+
+Working files in the run folder:
 
 | File | Content |
 |---|---|
