@@ -2,6 +2,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
+import pytest
 from PIL import Image
 from shapely.geometry import box
 
@@ -50,6 +51,14 @@ def test_export_writes_the_identified_values_and_keeps_verification(tmp_path):
     assert "pano=p1" in a["streetview"]
     b = g.loc["B"]
     assert b["check"] == "Not visible" and pd.isna(b["bldg_type"]) and pd.isna(b["image"])
+
+    # a correction from an older street view replaces the reading
+    export_geojson(result(), AIMED, ANSWERS, out, evidence,
+                   corrections={"A": {"bldg_type": "Commercial", "floors": "G", "_why": "old view"}})
+    assert gpd.read_file(out).set_index("gis_id").loc["A", "bldg_type"] == "Commercial"
+    with pytest.raises(ValueError):
+        export_geojson(result(), AIMED, ANSWERS, out, evidence, corrections={"A": {"no_such_field": 1}})
+    export_geojson(result(), AIMED, ANSWERS, out, evidence)
 
     # the checker marks A, then the layer is exported again
     g = gpd.read_file(out)

@@ -60,10 +60,12 @@ def thumbnail(src: Path, dst: Path) -> bool:
 
 
 def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Path, evidence_dir: Path,
-                   only: set[str] | None = None) -> int:
+                   only: set[str] | None = None, corrections: dict | None = None) -> int:
     """Write the GeoJSON (EPSG:4326) and its images folder beside it. Returns the number of features.
 
     What the checker typed into `verified` / `verify_note` in an earlier export is carried over.
+    `corrections` maps a unit id (e.g. 44WN1073_p2, or the building id for a one-part building) to
+    attribute values that replace the reading, e.g. after an older street view was checked.
     """
     images = out.parent / "images"
     kept = {}
@@ -112,6 +114,12 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
             "verify_note": kept.get((r.building_id, int(r.part)), (None, None))[1],
             "geometry": r.geometry,
         })
+        for k, v in (corrections or {}).get(r.unit_id, {}).items():
+            if k.startswith("_"):                       # comments such as "_why"
+                continue
+            if k not in rows[-1] or k == "geometry":
+                raise ValueError(f"correction for {r.unit_id}: unknown attribute {k!r}")
+            rows[-1][k] = v
     gdf = gpd.GeoDataFrame(rows, crs=result.crs).to_crs(4326)
     gdf["floor_count"] = pd.to_numeric(gdf["floor_count"], errors="coerce").astype("Int64")
     gdf["units_seen"] = pd.to_numeric(gdf["units_seen"], errors="coerce").astype("Int64")
