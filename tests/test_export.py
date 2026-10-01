@@ -6,7 +6,18 @@ import pytest
 from PIL import Image
 from shapely.geometry import box
 
-from streetaudit.export import _shop, _vs_survey, export_geojson
+from streetaudit.export import _shop, _vs_survey, export_geojson, trade_only_in_other_views
+
+
+def test_trade_seen_only_in_a_farther_view_is_flagged():
+    def ans(ref_boards, other_boards, usage="Mixed"):
+        return {"classification": {"building_usage": usage},
+                "views": [{"same_building_as_reference": "this is the reference view", "boards_read": ref_boards},
+                          {"same_building_as_reference": "yes", "boards_read": other_boards}]}
+    assert trade_only_in_other_views(ans([], ["AEROBICS"])) is True          # the 44WN1679 case
+    assert trade_only_in_other_views(ans(["U99"], ["U99"])) is False
+    assert trade_only_in_other_views(ans([], [])) is False
+    assert trade_only_in_other_views(ans([], ["AEROBICS"], usage="Residential")) is False
 
 
 def result():

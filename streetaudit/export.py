@@ -36,6 +36,21 @@ def _shop(usage, trade: str, possible) -> str:
     return "possible" if possible in (True, "yes") else "no"
 
 
+def trade_only_in_other_views(answer: dict) -> bool:
+    """True when the shop or office boards were read only in views other than the closest one.
+
+    On 44WN1679 two farther views showed another building with aerobics boards and the reading took
+    them for this building. Such readings get a warning in check_note.
+    """
+    usage = (answer.get("classification") or {}).get("building_usage")
+    if usage not in TRADE_USAGES:
+        return False
+    ref, other = [], []
+    for v in answer.get("views", []):
+        (ref if v.get("same_building_as_reference") == "this is the reference view" else other).append(v)
+    return not any(v.get("boards_read") for v in ref) and any(v.get("boards_read") for v in other)
+
+
 def _vs_survey(llm_usage, llm_floors, rec_usage, rec_floors) -> str:
     if not llm_usage or llm_usage == "cannot tell":
         return "-"
@@ -92,9 +107,12 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
         floors = cls.get("floors_above_ground") if checked else None
         floors = floors if isinstance(floors, int) and not isinstance(floors, bool) else None
         trade = "; ".join(map(str, cls.get("trade_evidence") or []))
+        note = r.verdict_why
+        if checked and trade_only_in_other_views(first):
+            note += " | check: shop/office boards seen only in a farther view, make sure it is this building"
         rows.append({
             "gis_id": r.building_id, "part": int(r.part), "road": r.road,
-            "check": r.verdict, "check_note": r.verdict_why,
+            "check": r.verdict, "check_note": note,
             "bldg_type": usage, "floors": _floors_text(floors), "floor_count": floors,
             "floor_use": "; ".join(f"{_floors_text(f.get('floor'))}: {f.get('usage')}" for f in cls.get("floor_usage") or []) or None,
             "shop_gf": _shop(usage, trade, cls.get("possible_shop")) if checked else None,
