@@ -30,10 +30,14 @@ How the photos are marked:
   structure as part of the target.
 - In the aerial photo the target is outlined in yellow, other mapped footprints in thin white, and each
   camera is a cyan dot with its view number and two cyan lines to the ends of what it sees.
-- View 1 is the closest and most direct view. The other views are often farther away, across open ground
-  or through gaps, and can land on a DIFFERENT building by mistake, for example a new building that is not
-  on the map yet. The reference view is the first view in which the target is visible (normally view 1).
-  For every other view say whether it shows the same building as the reference view.
+- Views are often far away, across open ground or through gaps, and can land on a DIFFERENT building by
+  mistake, for example a building set back behind the target or a new building not on the map yet. Each
+  street photo is labelled with the camera's distance to the target. A camera a few metres away must show
+  the target close up; if it shows a building far behind, that view shows another building.
+- Pick as reference view the view that most surely shows the target: close, direct, matching the outline
+  and the neighbours in the aerial photo (normally view 1). For every other view say whether it shows the
+  same building as the reference view, judged by matching features (colour, windows, balconies, gate,
+  roof), never by "it is also a building of that kind".
 
 Do two jobs and answer ONLY with JSON in the form given below.
 
@@ -112,11 +116,27 @@ def _image_part(path: Path) -> dict:
 
 
 def request_key(info: dict) -> str:
-    """Identifies the images a building's answers were given for. Answers with another key are out of date."""
+    """Identifies the images a building's answers were given for. Answers with another key are out of date.
+
+    Only the images count: a reading stays valid when the question is reworded, but not when the views
+    are planned or fetched again. The prompt version is kept in the answer file for information.
+    """
     shown = [[v["pano_id"], v["aim"]] for v in info["views"] if v.get("image")]
     zoom = info.get("zoom") or {}
-    text = json.dumps([shown, zoom.get("pano_id"), zoom.get("aim"), PROMPT], sort_keys=True)
+    text = json.dumps([shown, zoom.get("pano_id"), zoom.get("aim")], sort_keys=True)
     return hashlib.sha1(text.encode()).hexdigest()[:16]
+
+
+def legacy_request_key(info: dict, prompt: str) -> str:
+    """The key used before 2026-10-01, which also hashed the prompt text."""
+    shown = [[v["pano_id"], v["aim"]] for v in info["views"] if v.get("image")]
+    zoom = info.get("zoom") or {}
+    text = json.dumps([shown, zoom.get("pano_id"), zoom.get("aim"), prompt], sort_keys=True)
+    return hashlib.sha1(text.encode()).hexdigest()[:16]
+
+
+def prompt_version() -> str:
+    return hashlib.sha1(PROMPT.encode()).hexdigest()[:12]
 
 
 def build_request(info: dict, evidence_dir: Path) -> list[dict] | None:

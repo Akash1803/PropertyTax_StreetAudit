@@ -148,7 +148,7 @@ def stage_llm(args, s: Settings) -> None:
             runs = [r for r in runs if r.get("answer")]
         if not runs:
             runs.append(client.ask(parts))
-            _write_json(path, {"key": key, "runs": runs})
+            _write_json(path, {"key": key, "prompt": llm.prompt_version(), "runs": runs})
         first = runs[0].get("answer")
         if first and len(runs) < 2 and s.second_opinion != "none":
             near = units.iloc[tree.query(unit.geometry, predicate="dwithin", distance=s.door_unique_m)]
@@ -157,7 +157,7 @@ def stage_llm(args, s: Settings) -> None:
             if s.second_opinion == "all" or rules.needs_second_opinion(
                     first, doors.get(unit.building_id, set()), neighbours, core_ok):
                 runs.append(client.ask(parts))
-                _write_json(path, {"key": key, "runs": runs})
+                _write_json(path, {"key": key, "prompt": llm.prompt_version(), "runs": runs})
         return unit.unit_id, len(runs), next((r["error"] for r in runs if r.get("error")), "")
 
     todo = [u for u in sel.itertuples() if aimed.get(u.unit_id, {}).get("views")]

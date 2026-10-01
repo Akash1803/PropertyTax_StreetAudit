@@ -54,15 +54,23 @@ def test_a_far_view_of_another_building_is_left_out_not_fatal():
     assert two_view_support(a, True) == (True, "2 views agree and match the ortho")
 
 
-def test_reference_is_the_first_visible_view():
+def test_reference_is_the_named_visible_view():
     a = answer(views=3)
     a["views"][0]["target_visible"] = "hidden"
     a["reference_view"] = 2
     a["views"][1]["same_building_as_reference"] = "this is the reference view"
     assert [x["view"] for x in agreeing_views(a)] == [2, 3]
-    # the LLM compared against view 3 although view 2 is the first visible one: nothing can be concluded
+    # an extra view fetched later can be the reference; view 2 then counts only if it says "yes"
     a["reference_view"] = 3
-    assert [x["view"] for x in agreeing_views(a)] == [2]
+    a["views"][1]["same_building_as_reference"] = "cannot tell"
+    a["views"][2]["same_building_as_reference"] = "this is the reference view"
+    assert [x["view"] for x in agreeing_views(a)] == [3]
+    # a hidden reference proves nothing
+    a["reference_view"] = 1
+    assert agreeing_views(a) == []
+    # no name: the first visible view
+    del a["reference_view"]
+    assert agreeing_views(a)[0]["view"] == 2
 
 
 def test_neighbours_door_number_blocks_verification():
@@ -82,6 +90,9 @@ def test_two_view_rule_conditions():
     assert two_view_support(answer(same="cannot tell"), True)[0] is False
     assert two_view_support(answer(same="no"), True)[0] is False
     assert two_view_support(answer(between="no, more than one"), True)[0] is False
+    a = answer(views=3)
+    a["views"][1]["one_building_between_marks"] = "no, more than one"   # a confirming view also shows a neighbour
+    assert two_view_support(a, True)[0] is True
     assert two_view_support(answer(aerial="cannot tell"), True)[0] is False
     assert two_view_support(answer(), False)[0] is False          # frontage too narrow
     assert two_view_support(answer(), True)[0] is True

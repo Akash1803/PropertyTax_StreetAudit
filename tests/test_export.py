@@ -6,7 +6,18 @@ import pytest
 from PIL import Image
 from shapely.geometry import box
 
-from streetaudit.export import _shop, _vs_survey, export_geojson, trade_only_in_other_views
+from streetaudit.export import _shop, _vs_survey, export_geojson, picture_view, trade_only_in_other_views
+
+
+def test_picture_is_the_first_clear_view_of_the_building():
+    views = [{"image": "a.jpg"}, {"image": "b.jpg"}, {"image": "c.jpg"}]
+    ans = {"views": [{"target_visible": "hidden", "same_building_as_reference": "cannot tell"},
+                     {"target_visible": "clear", "same_building_as_reference": "no"},
+                     {"target_visible": "clear", "same_building_as_reference": "this is the reference view"}]}
+    assert picture_view(views, ans) == 2                     # not the tree (0), not the neighbour (1)
+    ans["views"][2]["target_visible"] = "partly hidden"
+    assert picture_view(views, ans) == 2                     # falls back to the reference view
+    assert picture_view(views, {}) == 0
 
 
 def test_trade_seen_only_in_a_farther_view_is_flagged():

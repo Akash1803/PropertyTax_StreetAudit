@@ -102,6 +102,21 @@ Rerunning the `results` stage keeps what reviewers have typed into `review`, `re
 
 Buildings the LLM has not been asked about yet have the verdict **Pending**, so a ward can be asked in batches.
 
+## Reading the pictures by eye
+
+Without an LLM, a person (or an assistant in a chat) can read the marked pictures and store the readings with [tools/write_readings.py](tools/write_readings.py). The readings use the same answer form, so the same rules decide the check and the same export makes the layer. The script refuses readings whose number of views does not match the run, or whose reference view is hidden.
+
+Checklist that came out of Akash's checks of the first 60 buildings:
+
+- A view counts as "same building" only on matching features (colour, windows, balconies, gate, roof), never because it is "also a grey house".
+- A camera a few metres from the footprint must show the building close up. If it shows a building far behind a wall, that view shows another building (44WN1679).
+- Count every level of shops, including a street-level floor below raised shops (44WN1048).
+- A stilt parking level is the ground floor; count the floors above it (44WN1242).
+- When the current views are hidden, look at older panoramas and other angles before answering "cannot tell" (44WN1073 part 2, 44WN1142).
+- Check which footprint a shop board belongs to with the neighbouring footprints' distances, not by eye alone (44WN1749, 44WN1141).
+
+Answers are tied to the images they were read from (`request_key`). Rewording the LLM question does not invalidate them; planning or fetching the views again does. [tools/rekey_answers.py](tools/rekey_answers.py) migrated answers written under the older key.
+
 ## Tests
 
 ```

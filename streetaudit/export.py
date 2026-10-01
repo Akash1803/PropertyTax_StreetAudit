@@ -51,6 +51,27 @@ def trade_only_in_other_views(answer: dict) -> bool:
     return not any(v.get("boards_read") for v in ref) and any(v.get("boards_read") for v in other)
 
 
+def picture_view(views: list[dict], answer: dict) -> int:
+    """Index of the view to show as the building's picture.
+
+    The first view the reading found clear and not another building (reference, same, or unsure);
+    otherwise the reference view; otherwise view 1. On 44WN1142 view 1 is a tree and view 3 the shop.
+    """
+    said = answer.get("views") or []
+
+    def get(i, key):
+        return said[i].get(key) if i < len(said) else None
+
+    ok = ("this is the reference view", "yes", "cannot tell")
+    for i, v in enumerate(views):
+        if v.get("image") and get(i, "target_visible") == "clear" and get(i, "same_building_as_reference") in ok:
+            return i
+    for i, v in enumerate(views):
+        if v.get("image") and get(i, "same_building_as_reference") == "this is the reference view":
+            return i
+    return 0
+
+
 def _vs_survey(llm_usage, llm_floors, rec_usage, rec_floors) -> str:
     if not llm_usage or llm_usage == "cannot tell":
         return "-"
@@ -99,7 +120,7 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
         checked = r.verdict in ("Verified", "Unsure") and bool(cls)
         image = streetview = None
         if views:
-            v = views[0]
+            v = views[picture_view(views, first) if checked else 0]
             if thumbnail(evidence_dir / v["image"], images / f"{r.unit_id}.jpg"):
                 image = f"images/{r.unit_id}.jpg"
             streetview = GoogleStreetView.viewer_url(v["pano_id"], v["aim"]["heading"], v["aim"]["fov"], v["aim"]["pitch"])
@@ -124,7 +145,7 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
             "ai_note": cls.get("notes") or None,
             "conf_floors": (cls.get("confidence") or {}).get("floors"), "conf_type": (cls.get("confidence") or {}).get("usage"),
             "image": image, "streetview": streetview,
-            "photo_date": views[0]["pano_date"] if views else None,
+            "photo_date": v["pano_date"] if views else None,
             "survey_type": r.rec_usage, "survey_floors": _floors_text(r.rec_floors),
             "vs_survey": _vs_survey(usage, floors, r.rec_usage, r.rec_floors) if checked else "-",
             "checked_by": (r.model if checked else None), "checked_on": time.strftime("%Y-%m-%d"),

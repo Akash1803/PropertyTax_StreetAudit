@@ -25,18 +25,21 @@ def numbers_read(answers: list[dict]) -> list[str]:
 
 
 def agreeing_views(answer: dict) -> list[dict]:
-    """The reference view and the clear views the LLM says show the same building.
+    """The reference view and the visible views the reading says show the same building.
 
-    The reference is the first view in which the target is visible: the views are ordered so that this
-    is the closest, most direct one. A far view that lands on another building is simply left out.
+    The reference is the view the reading names (`reference_view`), provided the target is visible in it;
+    without a name it is the first visible view. Extra views fetched later are appended after the planned
+    ones, so the first visible view is not always the clearest one. A view that lands on another building
+    is simply left out.
     """
     usable = usable_views(answer)
     if not usable:
         return []
-    reference = usable[0]
-    if answer.get("reference_view") not in (None, reference.get("view")):
-        return [reference]            # the LLM compared against another view: its answers cannot be used
-    return [reference] + [v for v in usable[1:] if v.get("same_building_as_reference") == "yes"]
+    named = answer.get("reference_view")
+    reference = next((v for v in usable if v.get("view") == named), None) if named is not None else usable[0]
+    if reference is None:
+        return []                     # the named reference is hidden: nothing can be concluded
+    return [reference] + [v for v in usable if v is not reference and v.get("same_building_as_reference") == "yes"]
 
 
 def two_view_support(answer: dict, core_ok: bool) -> tuple[bool, str]:
@@ -47,9 +50,10 @@ def two_view_support(answer: dict, core_ok: bool) -> tuple[bool, str]:
         return False, "only one clear view and no door number read"
     if len(agree) < 2:
         return False, "no second view clearly shows the same building as the closest view"
-    split = [v for v in agree if str(v.get("one_building_between_marks", "")).startswith("no")]
-    if split:
-        return False, "marks do not hold exactly one building: " + str(split[0]["one_building_between_marks"])
+    # the reference view must isolate the building; a confirming view may also show part of a neighbour
+    if str(agree[0].get("one_building_between_marks", "")).startswith("no"):
+        return False, "marks in the reference view do not hold exactly one building: " + str(
+            agree[0]["one_building_between_marks"])
     aerial = answer.get("aerial_check") or {}
     if aerial.get("neighbours_match_aerial") != "yes" and not aerial.get("features_seen_in_both"):
         return False, "views agree but nothing matches the ortho"
