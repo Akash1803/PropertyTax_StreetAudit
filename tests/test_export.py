@@ -28,6 +28,7 @@ def test_shop_and_survey_comparison():
     assert _shop("Mixed", "", False) == "yes"
     assert _shop("Residential", "", "yes") == "possible"
     assert _shop("Residential", "", False) == "no"
+    assert _shop("Educational Institutions", "Montessori play school", False) == "no"
     assert _vs_survey("Mixed", 2, "Residential", 1) == "type differs and floors differ"
     assert _vs_survey("Residential", 1, "Residential", 1) == "same"
     assert _vs_survey("cannot tell", 1, "Residential", 1) == "-"

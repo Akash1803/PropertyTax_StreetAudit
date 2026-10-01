@@ -1,9 +1,10 @@
 """Cut one ortho chip per building. Run with QGIS's Python, because only its GDAL reads ECW:
 
-    "C:\\Program Files\\QGIS 3.40.10\\bin\\python-qgis-ltr.bat" tools\\export_ortho_chips.py <ortho file> <run_dir>
+    "C:\\Program Files\\QGIS 3.40.10\\bin\\python-qgis-ltr.bat" tools\\export_ortho_chips.py <ortho file> <run_dir> [ids.txt]
 
 Reads <run_dir>/work/chips_todo.json (written by the `views` stage) and writes JPEG chips plus
 <run_dir>/work/chips/chips.json. Chips already on disk are kept, so the script can be rerun.
+With an ids file (one building or unit id per line) only those buildings get a chip.
 """
 import json
 import sys
@@ -41,6 +42,9 @@ def read_chip(ds, c: dict, px: int):
 def main() -> None:
     ortho, run_dir = sys.argv[1], Path(sys.argv[2])
     todo = json.loads((run_dir / "work" / "chips_todo.json").read_text(encoding="utf-8"))
+    if len(sys.argv) > 3:
+        wanted = {ln.strip() for ln in Path(sys.argv[3]).read_text(encoding="utf-8-sig").splitlines() if ln.strip()}
+        todo["chips"] = {u: c for u, c in todo["chips"].items() if u in wanted or u.split("_p")[0] in wanted}
     out_dir = run_dir / "work" / "chips"
     out_dir.mkdir(parents=True, exist_ok=True)
     ds = gdal.Open(ortho)

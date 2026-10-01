@@ -227,7 +227,7 @@ def stage_export(args, s: Settings) -> None:
     units = res["unit_id"] if only is None else [u for u in res["unit_id"] if u in only]
     answers = {u: [r["answer"] for r in _llm_runs(s.work_dir / "llm" / f"{u}.json", llm.request_key(aimed[u]))
                    if r.get("answer")] for u in units if aimed.get(u, {}).get("views")}
-    out = s.run_dir / f"{s.run_dir.name}_AI_check.geojson"
+    out = s.run_dir / f"{s.run_dir.name}_AI_check{('_' + args.name) if args.name else ''}.geojson"
     n = export.export_geojson(res, aimed, answers, out, s.evidence_dir, only)
     style = out.with_suffix(".qml")           # same name as the layer: QGIS applies it when the layer is added
     if not style.exists():
@@ -265,6 +265,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--limit", type=int, help="work on the first N buildings of the selection")
     ap.add_argument("--retry-failed", action="store_true", help="llm stage: ask again where the last attempt failed")
     ap.add_argument("--tag-file", help="review-page: building ids to mark as the review set")
+    ap.add_argument("--name", help="export: suffix for the layer name, e.g. batch2 -> <run>_AI_check_batch2.geojson")
     ap.add_argument("files", nargs="*", help="import-review: answer files downloaded from the review page")
     ap.add_argument("--second-opinion", choices=["verify", "all", "none"],
                     help="override the setting: ask the LLM a second time before verifying (verify), always, or never")

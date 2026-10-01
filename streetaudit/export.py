@@ -26,8 +26,12 @@ def _floors_text(n) -> str | None:
     return "G" if n == 0 else f"G+{n}"
 
 
+TRADE_USAGES = ("Commercial", "Mixed", "Office / Lodge / Theater / Restaurants")
+
+
 def _shop(usage, trade: str, possible) -> str:
-    if usage in ("Commercial", "Mixed") or trade:
+    """Shop or other trade on the ground floor. A school's or temple's board is not a shop."""
+    if usage in TRADE_USAGES:
         return "yes"
     return "possible" if possible in (True, "yes") else "no"
 
@@ -113,7 +117,10 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
     gdf["units_seen"] = pd.to_numeric(gdf["units_seen"], errors="coerce").astype("Int64")
     out.parent.mkdir(parents=True, exist_ok=True)
     if out.exists():
-        out.unlink()
+        try:
+            out.unlink()
+        except PermissionError:
+            raise SystemExit(f"{out.name} is open in QGIS; close it there or export under another --name") from None
     gdf.to_file(out, driver="GeoJSON")
     back = len(gpd.read_file(out))
     if back != len(gdf):
