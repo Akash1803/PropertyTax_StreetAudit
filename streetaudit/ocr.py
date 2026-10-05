@@ -23,7 +23,10 @@ ROAD_RE = re.compile(r"((?:\b[A-Z0-9][A-Za-z0-9\.\(\)'&-]*\s+){0,6}?\b" + ROAD_W
 TAMIL_ROAD_WORDS = ("சாலை", "தெரு", "வீதி", "நகர்", "குறுக்கு", "லேஅவுட்", "காலனி")
 TAMIL_ROAD_RE = re.compile(r"((?:[\u0B80-\u0BFF\.\d]+\s+){0,5}?(?:" + "|".join(TAMIL_ROAD_WORDS) + r"))")
 PIN_RE = re.compile(r"\b6\s?4\s?1\s?\d\s?\d\s?\d\b")                       # Coimbatore district: 641xxx
-DOOR_RE = re.compile(r"\b(?:Old\s+|New\s+)?No\.?\s*[:\-]?\s*(\d+[A-Za-z]?(?:\s*/\s*\d+[A-Za-z]?)*)|\b(\d{1,4}\s*/\s*\d{1,4}[A-Za-z]?)\b", re.IGNORECASE)
+# "No. 12/3", "Old No 7", "7/102"; not "GST No: 33CHPPR...", "Ph No 98765..." or a 6-digit pin
+DOOR_RE = re.compile(r"(?<!GST\s)(?<!GSTIN\s)(?<!Ph\s)(?<!Phone\s)(?<!Cell\s)(?<!Mob\s)"
+                     r"\b(?:Old\s+|New\s+)?No\.?\s*[:\-]?\s*(\d{1,4}[A-Za-z]?(?:\s*/\s*\d{1,4}[A-Za-z]?)*)(?![A-Za-z0-9])"
+                     r"|\b(\d{1,4}\s*/\s*\d{1,4}[A-Za-z]?)\b", re.IGNORECASE)
 BOARD_HINTS = ("corporation", "municipal", "ccmc", "மாநகராட்சி", "கோயம்புத்தூர்", "coimbatore city")
 NOISE_RE = re.compile(r"\b(?:coimbatore\s+city\s+municipal\s+corporation|municipal\s+corporation|corporation|ward|zone|division|pin\s*code|coimbatore|tamil\s*nadu)\b[\s:\-]*", re.IGNORECASE)
 TAMIL_NOISE_RE = re.compile(r"(?:கோயம்புத்தூர்\s*மாநகராட்சி|கோயம்புத்தூர்|மாநகராட்சி|வார்டு\s*\d*|மண்டலம்)\s*")

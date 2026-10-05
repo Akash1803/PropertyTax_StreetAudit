@@ -29,6 +29,10 @@ def test_extract_board_shop_tamil_and_google_panel():
     tamil = extract(["கோயம்புத்தூர் மாநகராட்சி", "சின்னம்மாள் தெரு"])
     assert tamil["kind"] == "street_name_board" and tamil["road_names"] == ["சின்னம்மாள் தெரு"]
     assert extract(["OPEN", "SALE 50%"])["road_names"] == []
+    # a GST number or a phone number is not a door number
+    gst = extract(["GST No: 33CHPPR0230R1ZV +91 95006 97959", "SAI NUTS & SPICES", "7/102 Ramsamy Street, Sai baba colony, Coimbatore - 641 038"])
+    assert gst["doors"] == ["7/102"] and gst["pins"] == ["641038"] and gst["kind"] == "shop_address"
+    assert extract(["Ph No 98765 43210", "Cell No: 9876543210"])["doors"] == []
     # Google's own labels are not signs on the building
     g = extract(["Search Google Maps", "Google Street View", "Dec 2022", "SAI NUTS & SPICES"],
                 panel=["9 Ramasamy St", "Coimbatore, Tamil Nadu"])
