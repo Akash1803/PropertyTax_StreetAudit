@@ -42,3 +42,10 @@ def test_no_panorama_is_none_but_a_refused_request_is_an_error():
     for status in ("INVALID_REQUEST", "REQUEST_DENIED"):
         with pytest.raises(RuntimeError):
             GoogleStreetView("k", FakeSession({"status": status})).nearest_panorama(11.0, 76.9, 10)
+
+
+def test_viewer_url_carries_the_camera_position_as_fallback():
+    from streetaudit.sources import GoogleStreetView
+    url = GoogleStreetView.viewer_url("abc", 46.5, 62.2, 14.5, 11.0293396, 76.9375274)
+    assert "pano=abc" in url and "&viewpoint=11.0293396,76.9375274" in url
+    assert "viewpoint" not in GoogleStreetView.viewer_url("abc", 46.5, 62.2, 14.5)

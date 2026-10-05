@@ -12,6 +12,7 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 from PIL import Image
+from pyproj import Transformer
 
 from . import rules
 from .sources import GoogleStreetView
@@ -136,6 +137,7 @@ def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence
     `streets`: unit id -> (stretch id, street name).
     """
     kept, streets, ocr = kept or {}, streets or {}, ocr or {}
+    to_ll = Transformer.from_crs(result.crs, 4326, always_xy=True).transform if result.crs else None
     rows = []
     for r in result.itertuples():
         read = (ocr.get(r.unit_id) or {}).get("merged") or {}
@@ -149,7 +151,8 @@ def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence
             v = views[picture_view(views, first) if checked else 0]
             if images is not None:
                 image = thumbnail(evidence_dir / v["image"], images, r.unit_id)
-            streetview = GoogleStreetView.viewer_url(v["pano_id"], v["aim"]["heading"], v["aim"]["fov"], v["aim"]["pitch"])
+            lon, lat = to_ll(v["px"], v["py"]) if to_ll and v.get("px") is not None else (None, None)
+            streetview = GoogleStreetView.viewer_url(v["pano_id"], v["aim"]["heading"], v["aim"]["fov"], v["aim"]["pitch"], lat, lon)
         usage = cls.get("building_usage") if checked else None
         floors = cls.get("floors_above_ground") if checked else None
         floors = floors if isinstance(floors, int) and not isinstance(floors, bool) else None

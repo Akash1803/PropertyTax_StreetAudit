@@ -269,6 +269,8 @@ def street_rows(s: Settings, plan: dict, pictures: dict, readings: dict, bldg_ro
             canon.setdefault(key, next((k for k in by_name if st.similar_keys(key, k)), key))
             by_name.setdefault(canon[key], []).append(sid)
     from . import ocr as ocr_rules
+    from pyproj import Transformer
+    to_ll = Transformer.from_crs(s.metric_epsg, 4326, always_xy=True).transform
     ocr = ocr or {}
     lines, points = [], []
     for sid in sids:
@@ -304,7 +306,8 @@ def street_rows(s: Settings, plan: dict, pictures: dict, readings: dict, bldg_ro
                 "photo_date": p["pano_date"], "heading": p["heading"], "looking": compass(p["heading"]),
                 "usable": (said.get(p["n"]) or {}).get("usable"), "pic_note": (said.get(p["n"]) or {}).get("note"),
                 "image": image,
-                "streetview": GoogleStreetView.viewer_url(p["pano_id"], p["heading"], p["fov"], p["pitch"]),
+                "streetview": GoogleStreetView.viewer_url(p["pano_id"], p["heading"], p["fov"], p["pitch"],
+                                                          *reversed(to_ll(p["px"], p["py"]))),
                 "geometry": Point(p["px"], p["py"]),
             })
         best = _picture_for_layer(pics, saved)
@@ -319,7 +322,8 @@ def street_rows(s: Settings, plan: dict, pictures: dict, readings: dict, bldg_ro
             "pictures": len(shown), "pictures_ok": sum(1 for q in said.values() if q.get("usable") == "clear"),
             "photo_date": max((p["pano_date"] or "" for p in shown), default=None) or None,
             "image": best.get("_thumb") if best else None,
-            "streetview": GoogleStreetView.viewer_url(best["pano_id"], best["heading"], best["fov"], best["pitch"]) if best else None,
+            "streetview": GoogleStreetView.viewer_url(best["pano_id"], best["heading"], best["fov"], best["pitch"],
+                                                      *reversed(to_ll(best["px"], best["py"]))) if best else None,
             **summary,
             "assess": len(zones_of(units_)), "zone_here": here, "zone_street": street_zone, "zone_share": share,
             "odd_zone": n_odd, "odd_zone_ids": ", ".join(odd) or None, "zone_fit": fit,

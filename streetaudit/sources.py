@@ -63,6 +63,15 @@ class GoogleStreetView:
         return None
 
     @staticmethod
-    def viewer_url(pano_id: str, heading: float, fov: float, pitch: float) -> str:
-        return (f"https://www.google.com/maps/@?api=1&map_action=pano&pano={pano_id}"
-                f"&heading={heading}&pitch={pitch}&fov={min(fov, 100)}")
+    def viewer_url(pano_id: str, heading: float, fov: float, pitch: float, lat: float | None = None,
+                   lon: float | None = None) -> str:
+        """A link that opens the free Street View website on this panorama, looking this way.
+
+        With the camera position as `viewpoint`, the website falls back to the nearest panorama when it
+        no longer knows the id (ids of recent imagery change); without it a stale id opens in the ocean.
+        """
+        url = (f"https://www.google.com/maps/@?api=1&map_action=pano&pano={pano_id}"
+               f"&heading={heading}&pitch={pitch}&fov={min(fov, 100)}")
+        if lat is not None and lon is not None:
+            url += f"&viewpoint={lat:.7f},{lon:.7f}"
+        return url

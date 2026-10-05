@@ -28,7 +28,7 @@ def write_page(evidence_dir: Path, row: dict, info: dict, answers: list[dict], s
         if not v.get("image"):
             continue
         said = llm_views[n - 1] if n - 1 < len(llm_views) else {}
-        link = source.viewer_url(v["pano_id"], v["aim"]["heading"], v["aim"]["fov"], v["aim"]["pitch"])
+        link = source.viewer_url(v["pano_id"], v["aim"]["heading"], v["aim"]["fov"], v["aim"]["pitch"])  # no CRS here
         figures.append(
             f'<figure><img src="{_e(v["image"])}" loading="lazy"><figcaption>View {n} - {_e(v["pano_date"])} - '
             f'{v["dist_near"]:.0f} m away - <a href="{_e(link)}">open this panorama</a><br>'
