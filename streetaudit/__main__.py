@@ -216,7 +216,8 @@ def stage_results(args, s: Settings) -> None:
     llm_runs = {u: _llm_runs(s.work_dir / "llm" / f"{u}.json", llm.request_key(merged[u]))
                 for u in sel["unit_id"] if merged.get(u, {}).get("views")}
     rows, view_rows = results.build_rows(sel, merged, llm_runs, data.load_doors(s), data.load_assessment_usages(s),
-                                         s, GoogleStreetView)
+                                         s, GoogleStreetView, ocr_doors={u: (r.get("merged") or {}).get("doors") or []
+                                                                         for u, r in _ocr_records(s).items()})
     if any(r["evidence"] for r in rows):            # no pages once the full-size pictures are pruned
         evidence.write_index(s.evidence_dir, rows, f"Street audit - {s.run_dir.name}")
     out = results.write_layers(rows, view_rows, gpd.read_file(s.work_dir / "panoramas.gpkg"), s)
@@ -256,6 +257,11 @@ def _answers(s: Settings, aimed: dict, units) -> dict:
                 if r.get("answer")] for u in units if aimed.get(u, {}).get("views")}
 
 
+def _ocr_records(s: Settings) -> dict:
+    """unit id -> OCR record, for every building read so far."""
+    return {p.stem: _read_json(p, {}) for p in (s.work_dir / "ocr").glob("*.json")}
+
+
 def _street_of_units(s: Settings) -> dict:
     """unit id -> (stretch id, street name), when the street plan exists."""
     path = street_layer.work(s) / "plan.json"
@@ -281,7 +287,8 @@ def stage_export(args, s: Settings) -> None:
     out = s.run_dir / f"{s.run_dir.name}_AI_check{('_' + args.name) if args.name else ''}.geojson"
     corrections = _read_json(s.work_dir / "corrections.json", {})
     others = sorted(p for p in s.run_dir.glob(f"{s.run_dir.name}_AI_check*.geojson") if p != out)
-    n = export.export_geojson(res, aimed, answers, out, s.evidence_dir, only, corrections, _street_of_units(s), others)
+    n = export.export_geojson(res, aimed, answers, out, s.evidence_dir, only, corrections, _street_of_units(s), others,
+                              _ocr_records(s))
     style = out.with_suffix(".qml")           # same name as the layer: QGIS applies it when the layer is added
     if not style.exists():
         shutil.copyfile(Path(export.__file__).with_name("ai_check_style.qml"), style)
@@ -366,7 +373,7 @@ def stage_street_export(args, s: Settings) -> None:
     rows = export.building_rows(res, aimed, _answers(s, aimed, res["unit_id"]), s.evidence_dir, None, None, corrections)
     bldg_rows = dict(zip(res["unit_id"], rows))
     lines, points = street_layer.street_rows(s, plan, pictures, readings, bldg_rows, street_layer.assessment_zones(s),
-                                             sids, s.run_dir / "images" / "streets")
+                                             sids, s.run_dir / "images" / "streets", _ocr_records(s))
     suffix = ("_" + args.name) if args.name else ""
     out_lines = s.run_dir / f"{s.run_dir.name}_streets{suffix}.geojson"
     out_points = s.run_dir / f"{s.run_dir.name}_street_views{suffix}.geojson"
@@ -430,8 +437,41 @@ def stage_import_screenshots(args, s: Settings) -> None:
         say("some buildings have no ortho chip on the sheet; cut them with tools/export_ortho_chips.py <ortho> <run> ids.txt")
 
 
+
+def stage_ocr(args, s: Settings) -> None:
+    """Read shop names, door numbers, pin codes and road names off the pictures on file. Offline, free."""
+    from . import ocr
+    aimed = _read_json(s.work_dir / "aimed.json", {})
+    units = data.load_units(s)
+    sel = _selection(args, s, units) if _selected(args) else units
+    out_dir = s.work_dir / "ocr"
+    todo, skipped = [], 0
+    for u in sel["unit_id"]:
+        info = aimed.get(u) or {}
+        imgs = [s.evidence_dir / v["image"] for v in info.get("views", []) if v.get("image")]
+        if info.get("zoom", {}) and info["zoom"].get("image"):
+            imgs.append(s.evidence_dir / info["zoom"]["image"])
+        imgs = [i for i in imgs if i.exists()]
+        if not imgs:
+            thumb = s.run_dir / "images" / f"{u}.jpg"       # after prune only the layer's small picture is left
+            imgs = [thumb] if thumb.exists() else []
+        if not imgs:
+            continue
+        if (out_dir / f"{u}.json").exists() and not args.retry_failed:
+            skipped += 1
+            continue
+        todo.append((u, imgs))
+    say(f"OCR on {len(todo)} buildings ({sum(len(i) for _, i in todo)} pictures), {skipped} already done; "
+        "first run downloads the Tamil + English models")
+    for n, (u, imgs) in enumerate(todo, 1):
+        rec = ocr.read_unit(u, imgs, out_dir / f"{u}.json")
+        m = rec["merged"]
+        if n % 10 == 0 or n == len(todo):
+            say(f"  {n}/{len(todo)}  {u}: roads {m['road_names']} doors {m['doors']} shops {m['shop_lines'][:2]}")
+
+
 STAGES = {"panoramas": stage_panoramas, "views": stage_views, "images": stage_images, "llm": stage_llm,
-          "import-screenshots": stage_import_screenshots,
+          "import-screenshots": stage_import_screenshots, "ocr": stage_ocr,
           "results": stage_results, "export": stage_export, "prune": stage_prune,
           "review-page": stage_review_page, "import-review": stage_import_review,
           "streets": stage_streets, "street-images": stage_street_images, "street-export": stage_street_export}
@@ -451,7 +491,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--stretch-ids", help="comma-separated stretch ids (see the `streets` stage); building stages "
                                           "then work on the buildings of those stretches")
     ap.add_argument("--streets", help="comma-separated street names, any spelling; like --stretch-ids")
-    ap.add_argument("--retry-failed", action="store_true", help="llm stage: ask again where the last attempt failed")
+    ap.add_argument("--retry-failed", action="store_true", help="llm: ask again where the last attempt failed; ocr: read again")
     ap.add_argument("--tag-file", help="review-page: building ids to mark as the review set")
     ap.add_argument("--name", help="export: suffix for the layer name, e.g. batch2 -> <run>_AI_check_batch2.geojson")
     ap.add_argument("files", nargs="*", help="import-review: answer files; import-screenshots: the folder")

@@ -250,7 +250,7 @@ def _picture_for_layer(pictures: list[dict], reading: dict | None) -> dict | Non
 
 
 def street_rows(s: Settings, plan: dict, pictures: dict, readings: dict, bldg_rows: dict, zones: dict,
-                sids: list[str], images: Path | None) -> tuple[list[dict], list[dict]]:
+                sids: list[str], images: Path | None, ocr: dict | None = None) -> tuple[list[dict], list[dict]]:
     """Rows of the streets layer and of the street-views layer for the chosen stretches."""
     sts, assign = plan["stretches"], plan["assign"]
     members: dict[str, list[str]] = {}
@@ -268,11 +268,16 @@ def street_rows(s: Settings, plan: dict, pictures: dict, readings: dict, bldg_ro
             key = st.name_key(street_name(info))
             canon.setdefault(key, next((k for k in by_name if st.similar_keys(key, k)), key))
             by_name.setdefault(canon[key], []).append(sid)
+    from . import ocr as ocr_rules
+    ocr = ocr or {}
     lines, points = [], []
     for sid in sids:
         info = sts[sid]
         name = street_name(info)
         units_ = members.get(sid, [])
+        evidence = [{"name": n, "kind": (ocr[u].get("merged") or {}).get("kind"), "unit_id": u, "dist_m": 0}
+                    for u in units_ if u in ocr for n in ((ocr[u].get("merged") or {}).get("road_names") or [])]
+        named = ocr_rules.decide_name(name, evidence) if evidence else None
         rows_b = [{**bldg_rows[u], "role": assign[u]["role"]} for u in units_ if u in bldg_rows]
         summary = st.building_summary(rows_b)
         here, _ = st.main_zone(zones_of(units_))
@@ -319,6 +324,9 @@ def street_rows(s: Settings, plan: dict, pictures: dict, readings: dict, bldg_ro
             "odd_zone": n_odd, "odd_zone_ids": ", ".join(odd) or None, "zone_fit": fit,
             "zone_flag": "yes" if fit.startswith("zone may") or n_odd else "no",
             "gap_med_m": info.get("gap_med_m"), "gap_min_m": info.get("gap_min_m"),
+            "ocr_name": named["name"] if named else None, "ocr_status": named["status"] if named else "No sign read",
+            "ocr_rule": named["rule"] if named else None,
+            "ocr_fix": ("yes" if named["fix"] else "no") if named else None, "ocr_signs": len(evidence),
             "checked_by": (saved or {}).get("by"), "checked_on": (saved or {}).get("made"),
             "geometry": LineString(info["coords"]),
         })
@@ -327,7 +335,7 @@ def street_rows(s: Settings, plan: dict, pictures: dict, readings: dict, bldg_ro
 
 INT_FIELDS = ("pictures", "pictures_ok", "bldgs", "seen", "cant_see", "read", "bldg_verified", "bldg_unsure", "pending",
               "residential", "commercial", "mixed", "other_type", "trade_pct", "shops", "poss_shops", "differ",
-              "differ_type", "differ_floors", "type_unclear", "differ_pct", "assess", "odd_zone")
+              "differ_type", "differ_floors", "type_unclear", "differ_pct", "assess", "odd_zone", "ocr_signs")
 
 
 def export_streets(s: Settings, lines: list[dict], points: list[dict], out_lines: Path, out_points: Path,

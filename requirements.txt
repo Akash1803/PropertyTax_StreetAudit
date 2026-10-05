@@ -6,3 +6,4 @@ pandas
 requests
 pillow
 pytest
+easyocr>=1.7   # optional: the ocr stage

@@ -110,7 +110,7 @@ def thumbnail(src: Path, dst: Path) -> bool:
 
 def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence_dir: Path,
                   images: Path | None = None, kept: dict | None = None, corrections: dict | None = None,
-                  streets: dict | None = None) -> list[dict]:
+                  streets: dict | None = None, ocr: dict | None = None) -> list[dict]:
     """The building layer's attributes, one dict per unit of `result`, with the geometry.
 
     `images`: folder for the small pictures; None leaves pictures out (the street summary needs none).
@@ -119,9 +119,10 @@ def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence
     attribute values that replace the reading, e.g. after an older street view was checked.
     `streets`: unit id -> (stretch id, street name).
     """
-    kept, streets = kept or {}, streets or {}
+    kept, streets, ocr = kept or {}, streets or {}, ocr or {}
     rows = []
     for r in result.itertuples():
+        read = (ocr.get(r.unit_id) or {}).get("merged") or {}
         info = aimed.get(r.unit_id) or {}
         views = [v for v in info.get("views", []) if v.get("image")]
         first = (answers.get(r.unit_id) or [{}])[0] or {}
@@ -162,6 +163,11 @@ def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence
             "verify_note": kept.get((r.building_id, int(r.part)), (None, None))[1],
             "stretch_id": streets.get(r.unit_id, (None, None))[0],
             "street": streets.get(r.unit_id, (None, None))[1],
+            "ocr_shops": "; ".join(read.get("shop_lines") or []) or None,
+            "ocr_doors": ", ".join(read.get("doors") or []) or None,
+            "ocr_roads": "; ".join(read.get("road_names") or []) or None,
+            "ocr_pin": ", ".join(read.get("pins") or []) or None,
+            "google_addr": read.get("google_address"),
             "geometry": r.geometry,
         })
         fix = (corrections or {}).get(r.unit_id, {})
@@ -208,7 +214,7 @@ def write_layer(gdf: gpd.GeoDataFrame, out: Path) -> int:
 
 def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Path, evidence_dir: Path,
                    only: set[str] | None = None, corrections: dict | None = None, streets: dict | None = None,
-                   others: list[Path] | None = None) -> int:
+                   others: list[Path] | None = None, ocr: dict | None = None) -> int:
     """Write the GeoJSON (EPSG:4326) and its images folder beside it. Returns the number of features.
 
     What the checker typed into `verified` / `verify_note` in an earlier export is carried over, also
@@ -219,7 +225,7 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
     kept = {}
     for path in [*(others or []), out]:
         kept.update(kept_verification(path, ("gis_id", "part")))
-    rows = building_rows(res, aimed, answers, evidence_dir, out.parent / "images", kept, corrections, streets)
+    rows = building_rows(res, aimed, answers, evidence_dir, out.parent / "images", kept, corrections, streets, ocr)
     gdf = gpd.GeoDataFrame(rows, crs=result.crs).to_crs(4326)
     gdf["floor_count"] = pd.to_numeric(gdf["floor_count"], errors="coerce").astype("Int64")
     gdf["units_seen"] = pd.to_numeric(gdf["units_seen"], errors="coerce").astype("Int64")

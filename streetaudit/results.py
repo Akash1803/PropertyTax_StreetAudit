@@ -19,8 +19,13 @@ REVIEW_FIELDS = ("review", "reviewer", "review_note", "rev_ident", "rev_floors",
 
 
 def build_rows(units: gpd.GeoDataFrame, plan: dict, llm_runs: dict, doors: dict, assess: dict,
-               s: Settings, source) -> tuple[list[dict], list[dict]]:
-    """One result row per unit and one row per view. Also writes each unit's evidence page."""
+               s: Settings, source, ocr_doors: dict | None = None) -> tuple[list[dict], list[dict]]:
+    """One result row per unit and one row per view. Also writes each unit's evidence page.
+
+    `ocr_doors`: unit id -> door numbers the OCR read on its pictures; they count like numbers the
+    reading saw, so a building can be verified by its own door number without anyone typing it.
+    """
+    ocr_doors = ocr_doors or {}
     s.evidence_dir.mkdir(parents=True, exist_ok=True)
     tree = shapely.STRtree(units.geometry.values)
     rows, view_rows = [], []
@@ -30,6 +35,10 @@ def build_rows(units: gpd.GeoDataFrame, plan: dict, llm_runs: dict, doors: dict,
             continue
         runs = llm_runs.get(unit.unit_id, [])
         answers = [r["answer"] for r in runs if r.get("answer")]
+        if answers and ocr_doors.get(unit.unit_id):
+            seen = list(answers[0].get("zoom_numbers_read") or [])
+            answers = [{**answers[0], "zoom_numbers_read": seen + [d for d in ocr_doors[unit.unit_id] if d not in seen]},
+                       *answers[1:]]
         error = next((r["error"] for r in runs if r.get("error")), "")
         near = units.iloc[tree.query(unit.geometry, predicate="dwithin", distance=s.door_unique_m)]
         neighbours = {b: doors.get(b, set()) for b in set(near["building_id"]) if b != unit.building_id}
