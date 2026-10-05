@@ -8,12 +8,15 @@ Identity rests on the checker, so these readings are judged by `rules.viewer_pla
 """
 from __future__ import annotations
 
+import csv
 import re
 import shutil
 import time
+from datetime import datetime
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
 import shapely
 from PIL import Image, ImageDraw
 
@@ -47,9 +50,76 @@ def match_files(folder: Path, units: set[str], building_parts: dict[str, list[st
     return {u: [p for _, p in sorted(v)] for u, v in found.items()}, unknown
 
 
+CLICK_GAP_MIN, CLICK_GAP_MAX = 2.0, 240.0      # seconds between the click in QGIS and the screenshot
+
+
+def load_clicks(log: Path) -> list[tuple[float, str]]:
+    """The click log the layer action writes: one `unit id,ISO time` line per link opened, in time order."""
+    if not log.exists():
+        return []
+    out = []
+    for row in csv.reader(log.read_text(encoding="utf-8").splitlines()):
+        if len(row) >= 2 and row[0].strip():
+            try:
+                out.append((datetime.fromisoformat(row[1].strip()).timestamp(), row[0].strip().upper()))
+            except ValueError:
+                continue
+    return sorted(out)
+
+
+def match_by_clicks(files: list[Path], clicks: list[tuple[float, str]], units: set[str],
+                    building_parts: dict[str, list[str]]) -> tuple[dict[str, list[Path]], list[tuple[Path, str]]]:
+    """Files named by a screenshot tool (date/time/counter) go to the building clicked last before them.
+
+    A file is accepted when the last click lies 2 s to 4 min before it and no other click came in
+    between; otherwise it is reported with the reason. Several files after one click become pictures 1, 2, ...
+    """
+    found: dict[str, list[Path]] = {}
+    rejected = []
+    times = [c[0] for c in clicks]
+    for f in sorted(files, key=lambda x: x.stat().st_mtime):
+        taken = f.stat().st_mtime
+        i = int(np.searchsorted(times, taken, side="right")) - 1
+        if i < 0:
+            rejected.append((f, "taken before the first click in the log"))
+            continue
+        gap = taken - times[i]
+        if gap < CLICK_GAP_MIN:
+            rejected.append((f, f"taken {gap:.0f} s after the click, too soon to be that building"))
+            continue
+        if gap > CLICK_GAP_MAX:
+            rejected.append((f, f"taken {gap / 60:.1f} min after the last click ({clicks[i][1]}); too long"))
+            continue
+        unit = clicks[i][1]
+        if unit not in units and unit in building_parts:
+            unit = building_parts[unit][0]
+        if unit not in units:
+            rejected.append((f, f"click log names unknown building {clicks[i][1]}"))
+            continue
+        found.setdefault(unit, []).append(f)
+    return found, rejected
+
+
+def crop_chrome(img: Image.Image) -> Image.Image:
+    """Cut the browser's title/tab bars and the taskbar off a full-screen capture.
+
+    Rows of window chrome are nearly uniform; photographic rows are not. Only the top and bottom are
+    cut: Google's panels overlay the picture itself and are left for the reader.
+    """
+    a = np.asarray(img.convert("RGB"), dtype=np.float32)
+    row_std = a.std(axis=(1, 2))
+    busy = np.flatnonzero(row_std > 18)
+    if len(busy) < img.size[1] * 0.3:
+        return img
+    top, bottom = int(busy[0]), int(busy[-1]) + 1
+    if bottom - top < img.size[1] * 0.4:
+        return img
+    return img.crop((0, top, img.size[0], bottom))
+
+
 def store(src: Path, dst: Path) -> dict:
     """A copy reduced to MAX_PX on the long side (a 4K screenshot is 3-8 MB; 1600 px reads fine)."""
-    img = Image.open(src).convert("RGB")
+    img = crop_chrome(Image.open(src).convert("RGB"))
     img.thumbnail((MAX_PX, MAX_PX))
     dst.parent.mkdir(parents=True, exist_ok=True)
     img.save(dst, quality=88)

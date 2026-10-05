@@ -395,6 +395,10 @@ def stage_import_screenshots(args, s: Settings) -> None:
     for u in units.itertuples():
         parts.setdefault(u.building_id, []).append(u.unit_id)
     found, unknown = screenshots.match_files(folder, set(plan), parts)
+    clicks = screenshots.load_clicks(s.work_dir / "clicks.log")
+    by_click, rejected = screenshots.match_by_clicks(unknown, clicks, set(plan), parts) if clicks else ({}, [(f, "no click log") for f in unknown])
+    for u, fs in by_click.items():
+        found.setdefault(u, []).extend(fs)
     chips = _read_json(s.work_dir / "chips" / "chips.json", {})
     sheets_dir = s.evidence_dir / "screenshot_sheets"
     done, not_facing = [], []
@@ -416,8 +420,10 @@ def stage_import_screenshots(args, s: Settings) -> None:
     (s.work_dir / "screenshots_missing.txt").write_text("\n".join(missing) + "\n", encoding="utf-8")
     say(f"screenshots imported for {len(done)} buildings ({sum(len(v) for v in found.values())} pictures) | "
         f"sheets: {sheets_dir} | still without a picture: {len(missing)} (work\\screenshots_missing.txt)")
-    if unknown:
-        say(f"{len(unknown)} files match no building id and were skipped: " + ", ".join(f.name for f in unknown[:10]))
+    if by_click:
+        say(f"{sum(len(v) for v in by_click.values())} time-named files were matched through the click log")
+    for f, why in rejected:
+        say(f"  skipped {f.name}: {why}")
     if not_facing:
         say(f"{len(not_facing)} buildings the planner marked not visible got a picture anyway (kept): " + ", ".join(not_facing[:10]))
     if chips and any(u not in chips for u in done):
