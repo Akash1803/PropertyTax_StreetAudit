@@ -288,7 +288,7 @@ def stage_export(args, s: Settings) -> None:
     corrections = _read_json(s.work_dir / "corrections.json", {})
     others = sorted(p for p in s.run_dir.glob(f"{s.run_dir.name}_AI_check*.geojson") if p != out)
     n = export.export_geojson(res, aimed, answers, out, s.evidence_dir, only, corrections, _street_of_units(s), others,
-                              _ocr_records(s))
+                              _ocr_records(s), s.metric_epsg)
     style = out.with_suffix(".qml")           # same name as the layer: QGIS applies it when the layer is added
     if not style.exists():
         shutil.copyfile(Path(export.__file__).with_name("ai_check_style.qml"), style)

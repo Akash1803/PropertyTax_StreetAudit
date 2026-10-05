@@ -104,3 +104,16 @@ def test_export_writes_the_identified_values_and_keeps_verification(tmp_path):
     export_geojson(result(), AIMED, ANSWERS, out, evidence)
     again = gpd.read_file(out).set_index("gis_id")
     assert again.loc["A", "verified"] == "no" and again.loc["A", "verify_note"] == "it is G+1"
+
+
+def test_links_carry_the_camera_in_degrees(tmp_path):
+    import geopandas as gpd
+    from shapely.geometry import box
+    from streetaudit.export import building_rows
+    res = gpd.GeoDataFrame([{"unit_id": "A", "building_id": "A", "part": 1, "road": None, "verdict": "Pending",
+                             "verdict_why": "", "rec_usage": None, "rec_floors": None, "model": None,
+                             "geometry": box(76.93, 11.02, 76.931, 11.021)}], crs=4326)
+    aimed = {"A": {"views": [{"image": "A_v1.jpg", "pano_id": "p", "pano_date": "2026-02", "dist_near": 8.0,
+                              "px": 711679.6, "py": 1219908.4, "aim": {"heading": 1.0, "fov": 60.0, "pitch": 0.0}}]}}
+    row = building_rows(res, aimed, {}, tmp_path, None, view_epsg=32643)[0]
+    assert "&viewpoint=11.029" in row["streetview"] and ",76.937" in row["streetview"]

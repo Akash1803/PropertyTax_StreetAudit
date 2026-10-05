@@ -127,7 +127,7 @@ def thumbnail(src: Path, images: Path, unit_id: str) -> str | None:
 
 def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence_dir: Path,
                   images: Path | None = None, kept: dict | None = None, corrections: dict | None = None,
-                  streets: dict | None = None, ocr: dict | None = None) -> list[dict]:
+                  streets: dict | None = None, ocr: dict | None = None, view_epsg: int | None = None) -> list[dict]:
     """The building layer's attributes, one dict per unit of `result`, with the geometry.
 
     `images`: folder for the small pictures; None leaves pictures out (the street summary needs none).
@@ -137,7 +137,8 @@ def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence
     `streets`: unit id -> (stretch id, street name).
     """
     kept, streets, ocr = kept or {}, streets or {}, ocr or {}
-    to_ll = Transformer.from_crs(result.crs, 4326, always_xy=True).transform if result.crs else None
+    # camera positions in the views are in the run's metric CRS, whatever CRS the result layer is in
+    to_ll = Transformer.from_crs(view_epsg, 4326, always_xy=True).transform if view_epsg else None
     rows = []
     for r in result.itertuples():
         read = (ocr.get(r.unit_id) or {}).get("merged") or {}
@@ -233,7 +234,7 @@ def write_layer(gdf: gpd.GeoDataFrame, out: Path) -> int:
 
 def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Path, evidence_dir: Path,
                    only: set[str] | None = None, corrections: dict | None = None, streets: dict | None = None,
-                   others: list[Path] | None = None, ocr: dict | None = None) -> int:
+                   others: list[Path] | None = None, ocr: dict | None = None, view_epsg: int | None = None) -> int:
     """Write the GeoJSON (EPSG:4326) and its images folder beside it. Returns the number of features.
 
     What the checker typed into `verified` / `verify_note` in an earlier export is carried over, also
@@ -244,7 +245,7 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
     kept = {}
     for path in [*(others or []), out]:
         kept.update(kept_verification(path, ("gis_id", "part")))
-    rows = building_rows(res, aimed, answers, evidence_dir, out.parent / "images", kept, corrections, streets, ocr)
+    rows = building_rows(res, aimed, answers, evidence_dir, out.parent / "images", kept, corrections, streets, ocr, view_epsg)
     gdf = gpd.GeoDataFrame(rows, crs=result.crs).to_crs(4326)
     gdf["floor_count"] = pd.to_numeric(gdf["floor_count"], errors="coerce").astype("Int64")
     gdf["units_seen"] = pd.to_numeric(gdf["units_seen"], errors="coerce").astype("Int64")
