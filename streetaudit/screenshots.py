@@ -154,14 +154,15 @@ def as_views(planned: dict, files: list[Path], s: Settings, by: str) -> list[dic
 
 def sheet(s: Settings, unit_id: str, views: list[dict], chip: dict | None, units: gpd.GeoDataFrame,
           out_dir: Path) -> Path | None:
-    """Screenshots side by side with the ortho chip: target in yellow, planned camera in magenta."""
-    tiles = []
+    """Screenshots (large, stacked) beside the ortho chip: target in yellow, planned camera in magenta."""
+    shots = []
     for v in views:
         im = Image.open(s.evidence_dir / v["image"]).convert("RGB")
-        im.thumbnail((900, 900))
+        im.thumbnail((1250, 900))
         d = ImageDraw.Draw(im)
         _caption(d, f"SCREENSHOT {v['aim']['n']}  by {v.get('taken_by', '?')}  {v.get('taken', '')}", 520)
-        tiles.append(im)
+        shots.append(im)
+    ortho = None
     if chip and Path(chip["file"]).exists():
         img = Image.open(chip["file"]).convert("RGB")
         d = ImageDraw.Draw(img)
@@ -172,11 +173,12 @@ def sheet(s: Settings, unit_id: str, views: list[dict], chip: dict | None, units
 
         box = shapely.box(chip["xmin"], chip["ymin"], chip["xmax"], chip["ymax"])
         for row in units[units.intersects(box)].itertuples():
-            pts = [px(x, y) for x, y in row.geometry.exterior.coords]
-            if row.unit_id == unit_id:
-                _line(d, pts, YELLOW, 4)
-            else:
-                d.line(pts, fill=(255, 255, 255), width=1)
+            for poly in getattr(row.geometry, "geoms", [row.geometry]):
+                pts = [px(x, y) for x, y in poly.exterior.coords]
+                if row.unit_id == unit_id:
+                    _line(d, pts, YELLOW, 4)
+                else:
+                    d.line(pts, fill=(255, 255, 255), width=1)
         v = views[0]
         if v.get("px") is not None:
             c = px(v["px"], v["py"])
@@ -185,19 +187,23 @@ def sheet(s: Settings, unit_id: str, views: list[dict], chip: dict | None, units
                     d.line([c, px(*v[side])], fill=CYAN, width=2)
             d.ellipse([c[0] - 10, c[1] - 10, c[0] + 10, c[1] + 10], fill=MAGENTA_RGB, outline=(0, 0, 0), width=2)
         _caption(d, "ORTHO north up | yellow = target | magenta = spot the link opened", 520)
-        img.thumbnail((900, 900))
-        tiles.append(img)
-    if not tiles:
+        img.thumbnail((700, 700))
+        ortho = img
+    if not shots and ortho is None:
         return None
-    cols = min(3, len(tiles))
-    rows = (len(tiles) + cols - 1) // cols
-    T = 900
-    page = Image.new("RGB", (cols * T, rows * T + 36), "white")
+    left_w = max((im.size[0] for im in shots), default=0)
+    width = left_w + (ortho.size[0] if ortho else 0)
+    height = max(sum(im.size[1] for im in shots), ortho.size[1] if ortho else 0) + 36
+    page = Image.new("RGB", (width, height), "white")
     d = ImageDraw.Draw(page)
-    d.rectangle([0, 0, page.size[0], 36], fill=(0, 0, 0))
+    d.rectangle([0, 0, width, 36], fill=(0, 0, 0))
     d.text((8, 6), f"{unit_id}  {len(views)} screenshot(s)", fill=YELLOW, font=_font(20))
-    for i, t in enumerate(tiles):
-        page.paste(t, ((i % cols) * T + (T - t.size[0]) // 2, 36 + (i // cols) * T + (T - t.size[1]) // 2))
+    y = 36
+    for im in shots:
+        page.paste(im, (0, y))
+        y += im.size[1]
+    if ortho:
+        page.paste(ortho, (left_w, 36))
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{unit_id}.jpg"
     page.save(out, quality=84)

@@ -46,13 +46,16 @@ def expand(n: dict, n_views: int, viewer_placed: bool = False) -> dict:
     if len(views) != n_views:
         raise ValueError(f"{n['u']}: {len(views)} views in the notes, {n_views} in the run")
     refs = [v["view"] for v in views if v["same_building_as_reference"] == SAME["r"]]
-    if len(refs) != 1:
+    all_hidden = all(v["target_visible"] == "hidden" for v in views)
+    if all_hidden:
+        refs = [None]                      # nothing to see: the verdict will be Not visible
+    elif len(refs) != 1:
         raise ValueError(f"{n['u']}: exactly one view must be the reference, found {refs}")
-    if views[refs[0] - 1]["target_visible"] == "hidden":
+    elif views[refs[0] - 1]["target_visible"] == "hidden":
         raise ValueError(f"{n['u']}: the reference view {refs[0]} must show the building, but it is hidden")
-    cls = {"floors_above_ground": n["f"], "floors_note": n.get("fn", ""), "terrace_structures": n.get("ter", "none"),
+    cls = {"floors_above_ground": n.get("f"), "floors_note": n.get("fn", ""), "terrace_structures": n.get("ter", "none"),
            "floor_usage": [{"floor": a, "usage": b, "evidence": c} for a, b, c in n.get("fu", [])],
-           "building_usage": n["t"], "trade_evidence": n.get("trade", []), "other_boards": n.get("ob", []),
+           "building_usage": n.get("t", "cannot tell"), "trade_evidence": n.get("trade", []), "other_boards": n.get("ob", []),
            "shutters_on_ground_floor": n.get("sh", 0), "possible_shop": n.get("shop", False),
            "attached_front_structure": n.get("front", "none"), "construction_status": n.get("st", "complete"),
            "roof_type": n.get("roof", "RCC flat"), "stilt_parking": n.get("stilt", False), "extras": n.get("ex", []),
@@ -62,7 +65,7 @@ def expand(n: dict, n_views: int, viewer_placed: bool = False) -> dict:
             "why_same_or_not": n.get("why", ""),
             "classification_based_on_views": [v["view"] for v in views
                                               if v["same_building_as_reference"] in (SAME["r"], "yes")],
-            "aerial_check": {"features_seen_in_both": n["air"][0], "neighbours_match_aerial": n["air"][1], "note": ""},
+            "aerial_check": {"features_seen_in_both": n.get("air", [[], "cannot tell"])[0], "neighbours_match_aerial": n.get("air", [[], "cannot tell"])[1], "note": ""},
             "identity_confidence": None, "classification": cls}
     if viewer_placed:                       # screenshots taken by the checker at the planned camera
         out["viewer_placed"] = True
