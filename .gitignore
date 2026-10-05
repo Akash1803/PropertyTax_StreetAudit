@@ -1,5 +1,7 @@
 # secrets
 .env
+.env.*
+!.env.example
 
 # run outputs: street images, ortho chips, result layers and evidence pages never go into the repository
 runs/
