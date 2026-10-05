@@ -382,7 +382,50 @@ def stage_street_export(args, s: Settings) -> None:
             f"{street_layer.work(s) / 'orphan_notes.json'}")
 
 
+def stage_import_screenshots(args, s: Settings) -> None:
+    """Pictures a checker took in the Street View viewer, named by building id, become the building's views."""
+    from . import screenshots
+    if len(args.files) != 1 or not Path(args.files[0]).is_dir():
+        raise SystemExit("give the folder with the screenshots, e.g. import-screenshots D:\\...\\screenshots --by Akash")
+    folder, by = Path(args.files[0]), args.by or "checker"
+    units = data.load_units(s)
+    plan = _read_json(s.work_dir / "views.json", {})
+    aimed = _read_json(s.work_dir / "aimed.json", {})
+    parts = {}
+    for u in units.itertuples():
+        parts.setdefault(u.building_id, []).append(u.unit_id)
+    found, unknown = screenshots.match_files(folder, set(plan), parts)
+    chips = _read_json(s.work_dir / "chips" / "chips.json", {})
+    sheets_dir = s.evidence_dir / "screenshot_sheets"
+    done, not_facing = [], []
+    for unit_id, files in found.items():
+        info = plan[unit_id]
+        if info.get("access") != "street-facing":
+            not_facing.append(unit_id)
+        base = {**info, "unit_id": unit_id, "views": (aimed.get(unit_id) or info).get("views") or info.get("views") or []}
+        views = screenshots.as_views(base, files, s, by)
+        aimed[unit_id] = {**info, "views": views, "zoom": None, "ortho_image": None, "screenshots": True}
+        screenshots.sheet(s, unit_id, views, chips.get(unit_id), units, sheets_dir)
+        for f in files:
+            screenshots.clean_folder_copy(f, s.work_dir / "screenshots_in")
+        done.append(unit_id)
+    _write_json(s.work_dir / "aimed.json", aimed)
+    have = {u for u, a in aimed.items() if a.get("screenshots")} | {
+        u for u in plan if (s.work_dir / "llm" / f"{u}.json").exists()}
+    missing = screenshots.missing_list(plan, have)
+    (s.work_dir / "screenshots_missing.txt").write_text("\n".join(missing) + "\n", encoding="utf-8")
+    say(f"screenshots imported for {len(done)} buildings ({sum(len(v) for v in found.values())} pictures) | "
+        f"sheets: {sheets_dir} | still without a picture: {len(missing)} (work\\screenshots_missing.txt)")
+    if unknown:
+        say(f"{len(unknown)} files match no building id and were skipped: " + ", ".join(f.name for f in unknown[:10]))
+    if not_facing:
+        say(f"{len(not_facing)} buildings the planner marked not visible got a picture anyway (kept): " + ", ".join(not_facing[:10]))
+    if chips and any(u not in chips for u in done):
+        say("some buildings have no ortho chip on the sheet; cut them with tools/export_ortho_chips.py <ortho> <run> ids.txt")
+
+
 STAGES = {"panoramas": stage_panoramas, "views": stage_views, "images": stage_images, "llm": stage_llm,
+          "import-screenshots": stage_import_screenshots,
           "results": stage_results, "export": stage_export, "prune": stage_prune,
           "review-page": stage_review_page, "import-review": stage_import_review,
           "streets": stage_streets, "street-images": stage_street_images, "street-export": stage_street_export}
@@ -405,7 +448,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--retry-failed", action="store_true", help="llm stage: ask again where the last attempt failed")
     ap.add_argument("--tag-file", help="review-page: building ids to mark as the review set")
     ap.add_argument("--name", help="export: suffix for the layer name, e.g. batch2 -> <run>_AI_check_batch2.geojson")
-    ap.add_argument("files", nargs="*", help="import-review: answer files downloaded from the review page")
+    ap.add_argument("files", nargs="*", help="import-review: answer files; import-screenshots: the folder")
+    ap.add_argument("--by", help="import-screenshots: who took the pictures")
     ap.add_argument("--second-opinion", choices=["verify", "all", "none"],
                     help="override the setting: ask the LLM a second time before verifying (verify), always, or never")
     args = ap.parse_args(argv)

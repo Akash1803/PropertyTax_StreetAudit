@@ -12,7 +12,8 @@ One line per building:
    "t": building usage, "f": floors above ground (G = 0) or null, "fn": floors note,
    "fu": [[floor, usage, evidence], ...], "trade": [...], "ob": [...], "shop": bool, "sh": shutters,
    "front": str, "st": status, "roof": str, "ter": terrace structures, "stilt": bool, "ex": [...],
-   "units": int or null, "zn": [door numbers read in the zoom], "cf": float, "cu": float, "note": str}
+   "units": int or null, "zn": [door numbers read in the zoom], "cf": float, "cu": float, "note": str,
+   "moved": str (screenshots only: the checker did not stand at the planned spot)}
 Codes: visible c (clear) / p (partly hidden) / h (hidden);
        same r (reference: the view that surely shows the building) / y / n (another building) / ? (cannot tell);
        between y / n2 (more than one building) / np (part of a larger building) / ? (cannot tell).
@@ -32,7 +33,7 @@ SAME = {"r": "this is the reference view", "y": "yes", "n": "no", "?": "cannot t
 BETWEEN = {"y": "yes", "n2": "no, more than one", "np": "no, only part of a larger building", "?": "cannot tell"}
 
 
-def expand(n: dict, n_views: int) -> dict:
+def expand(n: dict, n_views: int, viewer_placed: bool = False) -> dict:
     views = []
     for k, v in enumerate(n["v"], 1):
         vis, same, between, what = v[0], v[1], v[2], v[3]
@@ -57,12 +58,17 @@ def expand(n: dict, n_views: int) -> dict:
            "roof_type": n.get("roof", "RCC flat"), "stilt_parking": n.get("stilt", False), "extras": n.get("ex", []),
            "confidence": {"floors": n.get("cf", 0.7), "usage": n.get("cu", 0.8)}, "notes": n.get("note", ""),
            "units_seen": n.get("units")}
-    return {"views": views, "zoom_numbers_read": n.get("zn", []), "zoom_boards_read": [], "reference_view": refs[0],
+    out = {"views": views, "zoom_numbers_read": n.get("zn", []), "zoom_boards_read": [], "reference_view": refs[0],
             "why_same_or_not": n.get("why", ""),
             "classification_based_on_views": [v["view"] for v in views
                                               if v["same_building_as_reference"] in (SAME["r"], "yes")],
             "aerial_check": {"features_seen_in_both": n["air"][0], "neighbours_match_aerial": n["air"][1], "note": ""},
             "identity_confidence": None, "classification": cls}
+    if viewer_placed:                       # screenshots taken by the checker at the planned camera
+        out["viewer_placed"] = True
+        if n.get("moved"):
+            out["moved_away"] = n["moved"]
+    return out
 
 
 def main() -> None:
@@ -85,7 +91,7 @@ def main() -> None:
         info = aimed[unit_id]
         shown = [v for v in info["views"] if v.get("image")]
         record = {"key": llm.request_key(info), "prompt": "read by eye",
-                  "runs": [{"answer": expand(n, len(shown)), "model": args.by, "usage": {}, "error": "",
+                  "runs": [{"answer": expand(n, len(shown), bool(info.get("screenshots"))), "model": args.by, "usage": {}, "error": "",
                             "seconds": 0, "single_reading": True}]}
         (out / f"{unit_id}.json").write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
     print("readings written:", len(notes))

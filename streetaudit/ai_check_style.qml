@@ -1172,7 +1172,11 @@
   </constraintExpressions>
   <expressionfields/>
   <attributeactions>
-    <defaultAction value="{00000000-0000-0000-0000-000000000000}" key="Canvas"/>
+    <defaultAction value="{5c0e2f4a-9d7b-4e1a-8f3c-2b7d1e6a9c01}" key="Canvas"/>
+    <actionsetting isEnabledOnlyWhenEditable="0" notificationMessage="" name="Street View + copy screenshot name" shortTitle="Snap" capture="0" type="1" action="from qgis.PyQt.QtWidgets import QApplication&#xa;from qgis.PyQt.QtGui import QDesktopServices&#xa;from qgis.PyQt.QtCore import QUrl&#xa;from qgis.utils import iface&#xa;name = '[% &quot;gis_id&quot; %]' + ('_p[% coalesce(&quot;part&quot;, 1) %]' if [% coalesce(&quot;part&quot;, 1) %] &gt; 1 else '')&#xa;QApplication.clipboard().setText(name)&#xa;QDesktopServices.openUrl(QUrl('[% &quot;streetview&quot; %]'))&#xa;iface.messageBar().pushInfo('Screenshot name copied: ' + name, 'Win+Shift+S to snip, Ctrl+S in the Snipping Tool, paste the name, save into the screenshots folder')" icon="" id="{5c0e2f4a-9d7b-4e1a-8f3c-2b7d1e6a9c01}">
+      <actionScope id="Feature"/>
+      <actionScope id="Canvas"/>
+    </actionsetting>
     <actionsetting isEnabledOnlyWhenEditable="0" notificationMessage="" name="Open in Google Street View" shortTitle="Street View" capture="0" type="5" action="[% &quot;streetview&quot; %]" icon="" id="{a6da70ac-c8e8-45da-b397-ac04f6afb7b2}">
       <actionScope id="Feature"/>
       <actionScope id="Canvas"/>

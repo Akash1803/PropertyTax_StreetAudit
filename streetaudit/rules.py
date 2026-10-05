@@ -62,6 +62,24 @@ def two_view_support(answer: dict, core_ok: bool) -> tuple[bool, str]:
     return True, f"{len(agree)} views agree and match the ortho"
 
 
+def viewer_placed_verdict(answer: dict) -> tuple[str, str]:
+    """Verdict for pictures a person took in the Street View viewer at the planned camera.
+
+    The two-view geometry does not apply: the person stood where the link put them and framed the
+    building, so identity rests on them. The reading still has to find exactly one building in the
+    picture and no sign that the person wandered off (`moved_away`).
+    """
+    agree = agreeing_views(answer)
+    if not agree:
+        return "Unsure", "screenshot: the reading could not confirm the building"
+    if str(agree[0].get("one_building_between_marks", "")).startswith("no"):
+        return "Unsure", "screenshot shows more than one building or only part of one: " + str(
+            agree[0]["one_building_between_marks"])
+    if answer.get("moved_away"):
+        return "Unsure", "screenshot taken away from the planned spot: " + str(answer["moved_away"])
+    return "Verified", "camera placed by the checker at the planned spot; reading confirms one building"
+
+
 def door_evidence(answers: list[dict], own: set[str], neighbours: dict[str, set[str]]) -> tuple[list[str], list[str]]:
     return match_doors(numbers_read(answers), own, neighbours)
 
@@ -94,6 +112,8 @@ def verdict(access: str, answers: list[dict], error: str, own: set[str], neighbo
         return "Unsure", "door number read belongs to a neighbour: " + "; ".join(neighbour_hits)
     if own_hits:
         return "Verified", "door number read: " + ", ".join(own_hits)
+    if first.get("viewer_placed"):
+        return viewer_placed_verdict(first)
     ok, reason = two_view_support(first, core_ok)
     if not ok:
         return "Unsure", reason

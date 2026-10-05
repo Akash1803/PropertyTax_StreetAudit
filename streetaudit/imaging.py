@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .config import Settings
 from .geometry import aim, aim_zoom, core_span, project, rel
 
-YELLOW, GREEN, CYAN = (255, 235, 0), (0, 230, 90), (0, 255, 255)
+YELLOW, GREEN, CYAN, MAGENTA_RGB = (255, 235, 0), (0, 230, 90), (0, 255, 255), (255, 60, 255)
 
 
 def _font(size: int):

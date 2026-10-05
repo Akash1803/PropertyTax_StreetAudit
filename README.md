@@ -131,6 +131,10 @@ python -m streetaudit -c configs\ward44.toml street-export --stretch-ids S035965
 
 `street-export` writes `<run>_streets_<name>.geojson` (lines) and `<run>_street_views_<name>.geojson` (one point per along-road picture, with the picture), each with its style. The styles are built with [tools/make_street_styles.py](tools/make_street_styles.py) inside QGIS. The building layer gains `stretch_id` and `street`, and keeps `verified` / `verify_note` typed in any other batch layer of the run.
 
+## Without a Google key: screenshots by the checker
+
+When no API key may be used, the pictures come from a person: the layer's action **Street View + copy screenshot name** opens the free Street View website at the planned camera and copies the building id; the checker snips the view and saves it under that name. `import-screenshots <folder> --by Name` turns the files into the building's views and reading sheets (`evidence\screenshot_sheets\`), lists what is still missing (`work\screenshots_missing.txt`), and the readings are stored with `tools/write_readings.py` as usual. Identity then rests on the checker: such a reading is **Verified** when it finds exactly one building in the picture and the checker did not move from the planned spot (`moved` in the notes), otherwise **Unsure**. Step-by-step instructions for the team: [docs/screenshots-howto.md](docs/screenshots-howto.md).
+
 ## Reading the pictures by eye
 
 Without an LLM, a person (or an assistant in a chat) can read the marked pictures and store the readings with [tools/write_readings.py](tools/write_readings.py). The readings use the same answer form, so the same rules decide the check and the same export makes the layer. The script refuses readings whose number of views does not match the run, or whose reference view is hidden.

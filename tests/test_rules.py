@@ -73,6 +73,20 @@ def test_reference_is_the_named_visible_view():
     assert agreeing_views(a)[0]["view"] == 2
 
 
+def test_screenshots_placed_by_the_checker_verify_on_one_reading():
+    a = answer(views=1)
+    a["viewer_placed"] = True
+    assert v("street-facing", [a]) == ("Verified", "camera placed by the checker at the planned spot; reading confirms one building")
+    a["views"][0]["one_building_between_marks"] = "no, more than one"
+    assert v("street-facing", [a])[0] == "Unsure"
+    b = answer(views=1)
+    b["viewer_placed"], b["moved_away"] = True, "picture shows the far side of the junction"
+    assert v("street-facing", [b])[0] == "Unsure"
+    c = answer(views=1, numbers=["63"])
+    c["viewer_placed"] = True
+    assert v("street-facing", [c])[0] == "Unsure"                  # a neighbour's door number still blocks
+
+
 def test_neighbours_door_number_blocks_verification():
     got = v("street-facing", [answer(numbers=["63"]), answer()])
     assert got[0] == "Unsure" and "N1" in got[1]
