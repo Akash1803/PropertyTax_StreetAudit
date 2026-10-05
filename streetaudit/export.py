@@ -97,15 +97,31 @@ def _vs_survey(llm_usage, llm_floors, rec_usage, rec_floors, upper_unseen: bool 
     return " and ".join(parts) or "same"
 
 
-def thumbnail(src: Path, dst: Path) -> bool:
-    """A small copy of the marked view 1 (about 40 KB) for the layer."""
+def thumbnail(src: Path, images: Path, unit_id: str) -> str | None:
+    """A small copy of the picture (about 40 KB) for the layer; returns its path relative to the layer.
+
+    The file is named after the picture's content (`44RN207_3f9a.jpg`): QGIS caches pictures by path,
+    so a changed picture under the same name would keep showing the old one. Older copies of the
+    same building are removed. Without the source (after `prune`) the newest existing copy is kept.
+    """
+    images.mkdir(parents=True, exist_ok=True)
     if not src.exists():
-        return dst.exists()
-    img = Image.open(src).convert("RGB")
-    img.thumbnail((THUMB_PX, THUMB_PX))
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    img.save(dst, quality=72, optimize=True)
-    return True
+        have = sorted(images.glob(f"{unit_id}_*.jpg"), key=lambda q: q.stat().st_mtime)
+        legacy = images / f"{unit_id}.jpg"
+        if have:
+            return f"images/{have[-1].name}"
+        return f"images/{legacy.name}" if legacy.exists() else None
+    import hashlib
+    tag = hashlib.sha1(src.read_bytes()).hexdigest()[:6]
+    dst = images / f"{unit_id}_{tag}.jpg"
+    if not dst.exists():
+        img = Image.open(src).convert("RGB")
+        img.thumbnail((THUMB_PX, THUMB_PX))
+        img.save(dst, quality=72, optimize=True)
+    for stale in list(images.glob(f"{unit_id}_*.jpg")) + [images / f"{unit_id}.jpg"]:
+        if stale.exists() and stale != dst:
+            stale.unlink()
+    return f"images/{dst.name}"
 
 
 def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence_dir: Path,
@@ -131,8 +147,8 @@ def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence
         image = streetview = None
         if views:
             v = views[picture_view(views, first) if checked else 0]
-            if images is not None and thumbnail(evidence_dir / v["image"], images / f"{r.unit_id}.jpg"):
-                image = f"images/{r.unit_id}.jpg"
+            if images is not None:
+                image = thumbnail(evidence_dir / v["image"], images, r.unit_id)
             streetview = GoogleStreetView.viewer_url(v["pano_id"], v["aim"]["heading"], v["aim"]["fov"], v["aim"]["pitch"])
         usage = cls.get("building_usage") if checked else None
         floors = cls.get("floors_above_ground") if checked else None

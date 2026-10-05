@@ -295,8 +295,9 @@ def street_rows(s: Settings, plan: dict, pictures: dict, readings: dict, bldg_ro
         said = {q["n"]: q for q in (reading or {}).get("pictures", [])}
         for p in shown:
             image = None
-            if images is not None and thumbnail(s.evidence_dir / "streets" / p["image"], images / p["image"]):
-                image = f"images/streets/{p['image']}"
+            if images is not None:
+                got = thumbnail(s.evidence_dir / "streets" / p["image"], images, Path(p["image"]).stem)
+                image = got.replace("images/", "images/streets/", 1) if got else None
             p["_thumb"] = image
             points.append({
                 "stretch_id": sid, "street": name, "pic": p["n"], "of_pics": len(shown), "along_m": p["along_m"],
