@@ -83,7 +83,7 @@ def test_export_writes_the_identified_values_and_keeps_verification(tmp_path):
     assert a["floor_use"] == "G: Commercial; G+1: Residential"
     assert a["survey_type"] == "Residential"            # the survey is shown beside, not used as the answer
     assert a["image"].startswith("images/A_") and (out.parent / a["image"]).exists()   # named by content
-    assert max(Image.open(out.parent / "images" / "A.jpg").size) <= 512
+    assert max(Image.open(out.parent / a["image"]).size) <= 512
     assert "pano=p1" in a["streetview"]
     b = g.loc["B"]
     assert b["check"] == "Not visible" and pd.isna(b["bldg_type"]) and pd.isna(b["image"])
