@@ -34,7 +34,7 @@ def test_time_named_files_follow_the_click_log(tmp_path):
     log.write_text("\n".join(f"{u},{datetime.fromtimestamp(t0 + s).isoformat(timespec='seconds')}"
                              for u, s in (("44WN1", 0), ("44WN2", 60), ("44WN2_p2", 120))) + "\n")
     clicks = load_clicks(log)
-    assert [c[1] for c in clicks] == ["44WN1", "44WN2", "44WN2_P2".replace("_P2", "_p2").upper()]
+    assert [c[1] for c in clicks] == ["44WN1", "44WN2", "44WN2_p2"]
     files = [touch(tmp_path / "shot_a.png", t0 + 15), touch(tmp_path / "shot_b.png", t0 + 30),
              touch(tmp_path / "shot_c.png", t0 + 61), touch(tmp_path / "shot_d.png", t0 + 150),
              touch(tmp_path / "shot_e.png", t0 + 120 + 300), touch(tmp_path / "shot_f.png", t0 - 5)]

@@ -28,6 +28,11 @@ MAX_PX = 1600
 EXTS = (".png", ".jpg", ".jpeg", ".webp")
 
 
+def norm_unit(text: str) -> str:
+    """'44wn1073_P2' -> '44WN1073_p2': ids are upper case, the part suffix lower case."""
+    return re.sub(r"_P(\d+)$", lambda m: "_p" + m.group(1), text.strip().upper())
+
+
 def match_files(folder: Path, units: set[str], building_parts: dict[str, list[str]]) -> tuple[dict[str, list[Path]], list[Path]]:
     """unit id -> its picture files in order, and the files that match no building.
 
@@ -40,7 +45,7 @@ def match_files(folder: Path, units: set[str], building_parts: dict[str, list[st
         if f.suffix.lower() not in EXTS:
             continue
         m = NAME.match(f.stem)
-        unit = m.group("unit").upper() if m else None
+        unit = norm_unit(m.group("unit")) if m else None
         if unit and unit not in units and unit in building_parts:
             unit = building_parts[unit][0]
         if not unit or unit not in units:
@@ -61,7 +66,7 @@ def load_clicks(log: Path) -> list[tuple[float, str]]:
     for row in csv.reader(log.read_text(encoding="utf-8").splitlines()):
         if len(row) >= 2 and row[0].strip():
             try:
-                out.append((datetime.fromisoformat(row[1].strip()).timestamp(), row[0].strip().upper()))
+                out.append((datetime.fromisoformat(row[1].strip()).timestamp(), norm_unit(row[0])))
             except ValueError:
                 continue
     return sorted(out)
