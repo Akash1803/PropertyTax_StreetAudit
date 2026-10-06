@@ -31,7 +31,7 @@ import geopandas as gpd
 import pandas as pd
 import shapely
 
-from . import data, evidence, export, imaging, llm, panoramas, results, review, rules, street_layer, visibility
+from . import data, evidence, export, imaging, links, llm, panoramas, results, review, rules, street_layer, visibility
 from .config import Settings, require_key
 from .sources import GoogleStreetView
 
@@ -288,7 +288,7 @@ def stage_export(args, s: Settings) -> None:
     corrections = _read_json(s.work_dir / "corrections.json", {})
     others = sorted(p for p in s.run_dir.glob(f"{s.run_dir.name}_AI_check*.geojson") if p != out)
     n = export.export_geojson(res, aimed, answers, out, s.evidence_dir, only, corrections, _street_of_units(s), others,
-                              _ocr_records(s), s.metric_epsg)
+                              _ocr_records(s), s.metric_epsg, _read_json(s.work_dir / "links.json", {}))
     style = out.with_suffix(".qml")           # same name as the layer: QGIS applies it when the layer is added
     if not style.exists():
         shutil.copyfile(Path(export.__file__).with_name("ai_check_style.qml"), style)
@@ -408,8 +408,11 @@ def stage_import_screenshots(args, s: Settings) -> None:
         found.setdefault(u, []).extend(fs)
     chips = _read_json(s.work_dir / "chips" / "chips.json", {})
     sheets_dir = s.evidence_dir / "screenshot_sheets"
-    done, not_facing = [], []
+    done, not_facing, already = [], [], []
     for unit_id, files in found.items():
+        if (s.work_dir / "llm" / f"{unit_id}.json").exists() and not args.retry_failed:
+            already.append(unit_id)            # a reading exists: a new picture must not silently replace its views
+            continue
         info = plan[unit_id]
         if info.get("access") != "street-facing":
             not_facing.append(unit_id)
@@ -427,6 +430,9 @@ def stage_import_screenshots(args, s: Settings) -> None:
     (s.work_dir / "screenshots_missing.txt").write_text("\n".join(missing) + "\n", encoding="utf-8")
     say(f"screenshots imported for {len(done)} buildings ({sum(len(v) for v in found.values())} pictures) | "
         f"sheets: {sheets_dir} | still without a picture: {len(missing)} (work\\screenshots_missing.txt)")
+    if already:
+        say(f"{len(already)} buildings already have a reading; their pictures were left alone (use --retry-failed to replace): "
+            + ", ".join(already[:12]) + (" ..." if len(already) > 12 else ""))
     if by_click:
         say(f"{sum(len(v) for v in by_click.values())} time-named files were matched through the click log")
     for f, why in rejected:
@@ -470,8 +476,24 @@ def stage_ocr(args, s: Settings) -> None:
             say(f"  {n}/{len(todo)}  {u}: roads {m['road_names']} doors {m['doors']} shops {m['shop_lines'][:2]}")
 
 
+
+def stage_links(args, s: Settings) -> None:
+    """Up to four Street View links per building within link_dist_m, from the panoramas on file. No API call."""
+    units = data.load_units(s)
+    blockers = data.load_blockers(s, units)
+    panos = visibility.usable_panoramas(gpd.read_file(s.work_dir / "panoramas.gpkg"), blockers, s)
+    plan = links.plan_links(units, panos, blockers, s, progress=say)
+    _write_json(s.work_dir / "links.json", plan)
+    counts = {}
+    for v in plan.values():
+        counts[len(v)] = counts.get(len(v), 0) + 1
+    los = sum(1 for v in plan.values() if v and v[0]["los"])
+    say(f"links planned for {len(plan)} buildings within {s.link_dist_m:.0f} m: links per building {dict(sorted(counts.items()))} | "
+        f"first link with a line of sight: {los}")
+
+
 STAGES = {"panoramas": stage_panoramas, "views": stage_views, "images": stage_images, "llm": stage_llm,
-          "import-screenshots": stage_import_screenshots, "ocr": stage_ocr,
+          "import-screenshots": stage_import_screenshots, "ocr": stage_ocr, "links": stage_links,
           "results": stage_results, "export": stage_export, "prune": stage_prune,
           "review-page": stage_review_page, "import-review": stage_import_review,
           "streets": stage_streets, "street-images": stage_street_images, "street-export": stage_street_export}
@@ -491,7 +513,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--stretch-ids", help="comma-separated stretch ids (see the `streets` stage); building stages "
                                           "then work on the buildings of those stretches")
     ap.add_argument("--streets", help="comma-separated street names, any spelling; like --stretch-ids")
-    ap.add_argument("--retry-failed", action="store_true", help="llm: ask again where the last attempt failed; ocr: read again")
+    ap.add_argument("--retry-failed", action="store_true", help="llm: ask again where the last attempt failed; ocr: read again; import-screenshots: replace the pictures of buildings already read")
     ap.add_argument("--tag-file", help="review-page: building ids to mark as the review set")
     ap.add_argument("--name", help="export: suffix for the layer name, e.g. batch2 -> <run>_AI_check_batch2.geojson")
     ap.add_argument("files", nargs="*", help="import-review: answer files; import-screenshots: the folder")

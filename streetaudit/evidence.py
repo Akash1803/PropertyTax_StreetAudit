@@ -28,10 +28,11 @@ def write_page(evidence_dir: Path, row: dict, info: dict, answers: list[dict], s
         if not v.get("image"):
             continue
         said = llm_views[n - 1] if n - 1 < len(llm_views) else {}
-        link = source.viewer_url(v["pano_id"], v["aim"]["heading"], v["aim"]["fov"], v["aim"]["pitch"])  # no CRS here
+        a = v.get("aim") or {}
+        link = source.viewer_url(v.get("pano_id"), a.get("heading", 0.0), a.get("fov", 90.0), a.get("pitch", 0.0))
         figures.append(
             f'<figure><img src="{_e(v["image"])}" loading="lazy"><figcaption>View {n} - {_e(v["pano_date"])} - '
-            f'{v["dist_near"]:.0f} m away - <a href="{_e(link)}">open this panorama</a><br>'
+            f'{(v.get("dist_near") or 0):.0f} m away - <a href="{_e(link)}">open this panorama</a><br>'
             f'LLM: {_e(said.get("target_visible"))}; same building as the closest view: '
             f'<b>{_e(said.get("same_building_as_reference"))}</b>; {_e(said.get("what_is_between_marks"))}'
             '</figcaption></figure>')

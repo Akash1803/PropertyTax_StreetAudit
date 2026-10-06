@@ -88,6 +88,8 @@ def build_rows(units: gpd.GeoDataFrame, plan: dict, llm_runs: dict, doors: dict,
         said = first.get("views") or []
         for n, v in enumerate(info["views"], 1):
             lv = said[n - 1] if n - 1 < len(said) else {}
+            if not v.get("left") or not v.get("right") or v.get("px") is None:
+                continue                  # a screenshot of a building the planner could not see: no camera geometry
             mid = ((v["left"][0] + v["right"][0]) / 2, (v["left"][1] + v["right"][1]) / 2)
             view_rows.append({
                 "unit_id": unit.unit_id, "view": n, "pano_id": v["pano_id"], "pano_date": v["pano_date"],

@@ -131,6 +131,10 @@ python -m streetaudit -c configs\ward44.toml street-export --stretch-ids S035965
 
 `street-export` writes `<run>_streets_<name>.geojson` (lines) and `<run>_street_views_<name>.geojson` (one point per along-road picture, with the picture), each with its style. The styles are built with [tools/make_street_styles.py](tools/make_street_styles.py) inside QGIS. The building layer gains `stretch_id` and `street`, and keeps `verified` / `verify_note` typed in any other batch layer of the run.
 
+## Street View links for every building (free)
+
+`links` gives every building up to four viewpoints within 50 m (`link_dist_m`, `max_links`), spread around it, built from the panorama positions on file: no image is fetched and no API is called, the links open the free Street View website. Buildings no panorama can see get the nearest viewpoints anyway, marked "no line of sight". The layer carries `sv_url_1..4`, `sv_view_1..4` ("12 m, from NE, 2026-02") and `sv_links`; the style has one action per link.
+
 ## Without a Google key: screenshots by the checker
 
 When no API key may be used, the pictures come from a person: the layer's action **Street View + copy screenshot name** opens the free Street View website at the planned camera and copies the building id; the checker snips the view and saves it under that name. `import-screenshots <folder> --by Name` turns the files into the building's views and reading sheets (`evidence\screenshot_sheets\`), lists what is still missing (`work\screenshots_missing.txt`), and the readings are stored with `tools/write_readings.py` as usual. Identity then rests on the checker: such a reading is **Verified** when it finds exactly one building in the picture and the checker did not move from the planned spot (`moved` in the notes), otherwise **Unsure**. Step-by-step instructions for the team: [docs/screenshots-howto.md](docs/screenshots-howto.md).
@@ -156,6 +160,7 @@ Checklist that came out of Akash's checks of the first 60 buildings:
 - A camera a few metres from the footprint must show the building close up. If it shows a building far behind a wall, that view shows another building (44WN1679).
 - Count every level of shops, including a street-level floor below raised shops (44WN1048).
 - A stilt parking level is the ground floor; count the floors above it (44WN1242).
+- A single room, stair tower or water-tank room on the terrace is not a floor (Akash's rule, 44WN257): G+1 with a terrace room stays G+1; only a level that covers most of the roof counts.
 - When the current views are hidden, look at older panoramas and other angles before answering "cannot tell" (44WN1073 part 2, 44WN1142).
 - Check which footprint a shop board belongs to with the neighbouring footprints' distances, not by eye alone (44WN1749, 44WN1141).
 - Shops below and upper floors not seen is not a contradiction of the survey's Mixed; the layer says "type unclear (upper floors not seen)" and the street summary does not count it as a difference.

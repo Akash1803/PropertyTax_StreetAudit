@@ -127,7 +127,8 @@ def thumbnail(src: Path, images: Path, unit_id: str) -> str | None:
 
 def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence_dir: Path,
                   images: Path | None = None, kept: dict | None = None, corrections: dict | None = None,
-                  streets: dict | None = None, ocr: dict | None = None, view_epsg: int | None = None) -> list[dict]:
+                  streets: dict | None = None, ocr: dict | None = None, view_epsg: int | None = None,
+                  links: dict | None = None) -> list[dict]:
     """The building layer's attributes, one dict per unit of `result`, with the geometry.
 
     `images`: folder for the small pictures; None leaves pictures out (the street summary needs none).
@@ -136,7 +137,7 @@ def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence
     attribute values that replace the reading, e.g. after an older street view was checked.
     `streets`: unit id -> (stretch id, street name).
     """
-    kept, streets, ocr = kept or {}, streets or {}, ocr or {}
+    kept, streets, ocr, links = kept or {}, streets or {}, ocr or {}, links or {}
     # camera positions in the views are in the run's metric CRS, whatever CRS the result layer is in
     to_ll = Transformer.from_crs(view_epsg, 4326, always_xy=True).transform if view_epsg else None
     rows = []
@@ -183,6 +184,7 @@ def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence
             "verify_note": kept.get((r.building_id, int(r.part)), (None, None))[1],
             "stretch_id": streets.get(r.unit_id, (None, None))[0],
             "street": streets.get(r.unit_id, (None, None))[1],
+            **_link_fields(links.get(r.unit_id) or [], to_ll),
             "ocr_shops": "; ".join(read.get("shop_lines") or []) or None,
             "ocr_doors": ", ".join(read.get("doors") or []) or None,
             "ocr_roads": "; ".join(read.get("road_names") or []) or None,
@@ -200,6 +202,25 @@ def building_rows(result: gpd.GeoDataFrame, aimed: dict, answers: dict, evidence
         if fix and "vs_survey" not in fix:              # the comparison follows the corrected values
             rows[-1]["vs_survey"] = _vs_survey(rows[-1]["bldg_type"], rows[-1]["floor_count"], r.rec_usage, r.rec_floors)
     return rows
+
+
+MAX_LINKS = 4
+
+
+def _link_fields(links: list[dict], to_ll) -> dict:
+    """sv_url_1..4 and sv_view_1..4 ("12 m, from NE, 2026-02"), empty where a building has fewer links."""
+    out = {}
+    for n in range(1, MAX_LINKS + 1):
+        k = links[n - 1] if n - 1 < len(links) else None
+        if k and to_ll:
+            lon, lat = to_ll(k["px"], k["py"])
+            out[f"sv_url_{n}"] = GoogleStreetView.viewer_url(k["pano_id"], k["heading"], k["fov"], k["pitch"], lat, lon)
+            out[f"sv_view_{n}"] = f"{k['dist']:.0f} m, from {k['from']}, {k.get('date') or '?'}" + ("" if k["los"] else " (no line of sight)")
+        else:
+            out[f"sv_url_{n}"] = None
+            out[f"sv_view_{n}"] = None
+    out["sv_links"] = len(links)
+    return out
 
 
 def kept_verification(out: Path, key_fields: tuple[str, ...]) -> dict:
@@ -234,7 +255,8 @@ def write_layer(gdf: gpd.GeoDataFrame, out: Path) -> int:
 
 def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Path, evidence_dir: Path,
                    only: set[str] | None = None, corrections: dict | None = None, streets: dict | None = None,
-                   others: list[Path] | None = None, ocr: dict | None = None, view_epsg: int | None = None) -> int:
+                   others: list[Path] | None = None, ocr: dict | None = None, view_epsg: int | None = None,
+                   links: dict | None = None) -> int:
     """Write the GeoJSON (EPSG:4326) and its images folder beside it. Returns the number of features.
 
     What the checker typed into `verified` / `verify_note` in an earlier export is carried over, also
@@ -245,7 +267,7 @@ def export_geojson(result: gpd.GeoDataFrame, aimed: dict, answers: dict, out: Pa
     kept = {}
     for path in [*(others or []), out]:
         kept.update(kept_verification(path, ("gis_id", "part")))
-    rows = building_rows(res, aimed, answers, evidence_dir, out.parent / "images", kept, corrections, streets, ocr, view_epsg)
+    rows = building_rows(res, aimed, answers, evidence_dir, out.parent / "images", kept, corrections, streets, ocr, view_epsg, links)
     gdf = gpd.GeoDataFrame(rows, crs=result.crs).to_crs(4326)
     gdf["floor_count"] = pd.to_numeric(gdf["floor_count"], errors="coerce").astype("Int64")
     gdf["units_seen"] = pd.to_numeric(gdf["units_seen"], errors="coerce").astype("Int64")

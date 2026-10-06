@@ -56,6 +56,11 @@ class Settings:
     door_unique_m: float = 50.0
     old_imagery_before: str = "2025-01"  # views captured before this month are "old imagery" in a mismatch
 
+    # --- Street View links (no API: built from the panoramas on file)
+    link_dist_m: float = 50.0     # a building gets links to viewpoints within this distance
+    max_links: int = 4
+    link_sector_deg: float = 60.0  # links are spread at least this far apart around the building
+
     # --- street level
     roads: Path | None = None      # the analyst's road line layer; only read
     road_name_field: str = "Road_Name"

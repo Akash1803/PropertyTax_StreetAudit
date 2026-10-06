@@ -146,7 +146,8 @@ def as_views(planned: dict, files: list[Path], s: Settings, by: str) -> list[dic
         views.append({**{k: first.get(k) for k in ("px", "py", "left", "right", "bearing_left", "bearing_right",
                                                       "dist_near", "dist_left", "dist_right", "span_deg", "pano_id",
                                                       "pano_date")},
-                      "aim": {**(first.get("aim") or {}), "source": "screenshot", "n": n},
+                      # a building the planner found not visible has no planned camera: neutral aim
+                      "aim": {"heading": 0.0, "fov": 90.0, "pitch": 0.0, **(first.get("aim") or {}), "source": "screenshot", "n": n},
                       "image": name, "screenshot": True, "taken_by": by, **meta,
                       "original": f.name})
     return views
